@@ -43,7 +43,7 @@ from netzob.Common.Type.TypeIdentifier import TypeIdentifier
 #+----------------------------------------------
 #| C Imports
 #+----------------------------------------------
-import _libNeedleman
+import libNeedleman
 
 
 #+----------------------------------------------
@@ -93,8 +93,8 @@ class Clusterer(object):
         # Serialize the symbols
         (serialSymbols, formatSymbols) = TypeConvertor.serializeSymbols(self.symbols)
         
-        (i_max, j_max, maxScore) = _libNeedleman.getMatrix(doInternalSlick, len(self.symbols), format, serialSymbols)
-
+        # Execute the Clustering part in C :) (thx fgy)
+        (i_max, j_max, maxScore) = libNeedleman.getMatrix(doInternalSlick, len(self.symbols), formatSymbols, serialSymbols)
         return (i_max, j_max, maxScore)
             
             

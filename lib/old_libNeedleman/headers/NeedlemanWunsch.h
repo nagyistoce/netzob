@@ -15,7 +15,8 @@
  +---------------------------------------------------------------------------+
 */
 
-#pragma once
+#ifndef __NeedlemanWunsch_header
+#define __NeedlemanWunsch__header
 
 #include <Python.h>
 #include <stdio.h>
@@ -49,8 +50,20 @@ typedef struct {
 	float score;
 } t_regex;
 
-PyMODINIT_FUNC init_libNeedleman();
+static PyObject* py_getMatrix(PyObject* self, PyObject* args);
+static PyObject* py_alignSequences(PyObject* self, PyObject* args);
 
+void initlibNeedleman();
 void alignTwoSequences(unsigned short int doInternalSlick, t_regex seq1, t_regex seq2, t_regex *regex);
-void hexdump(unsigned char *buf, int dlen);
+int hexdump(unsigned char *buf, int dlen);
 void dumpRegex(t_regex regex);
+
+/**
+ * Bind Python function names to our C functions
+ */
+static PyMethodDef libNeedleman_methods[] = {
+	{"getMatrix", py_getMatrix, METH_VARARGS},
+	{"alignSequences", py_alignSequences, METH_VARARGS},
+	{NULL, NULL}
+};
+#endif

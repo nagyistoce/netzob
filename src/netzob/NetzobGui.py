@@ -43,7 +43,6 @@ import optparse
 from netzob.Common.Menu import Menu
 from netzob.Inference.Vocabulary.UImodelization import UImodelization
 from netzob.Inference.Grammar.UIGrammarInference import UIGrammarInference
-#from netzob.Fuzzing.UIfuzzing import UIfuzzing
 from netzob.Common.LoggingConfiguration import LoggingConfiguration
 from netzob.Simulator.UISimulator import UISimulator
 from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
@@ -193,8 +192,10 @@ class NetzobGui(gtk.Window):
             self.getCurrentProject().saveConfigFile(self.getCurrentWorkspace())
 
     def startGui(self):
-        # GTK launching
         gtk.main()
+        # UI thread launching
+        #self.uiThread = threading.Thread(None, self.guiThread, None, (), {})
+        #self.uiThread.start()
 
     def evnmtDelete(self, widget, event, data=None):
         return False
@@ -211,7 +212,10 @@ class NetzobGui(gtk.Window):
             page[1].kill()
         gtk.main_quit()
 
-    #+---------------------------------------------- 
+    def guiThread(self):
+        gtk.main()
+
+    #+----------------------------------------------
     #| Called when user select a notebook
     #+----------------------------------------------
     def notebookFocus(self, notebook, page, pagenum):
