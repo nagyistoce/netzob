@@ -30,21 +30,24 @@
 #+----------------------------------------------
 import logging
 import gtk
+import uuid
 
 #+----------------------------------------------
 #| Local Imports
 #+----------------------------------------------
+from netzob.Inference.Vocabulary.TreeViews.AbstractViewGenerator import AbstractViewGenerator
 
 
 #+----------------------------------------------
 #| TreeSymbolGenerator:
 #+----------------------------------------------
-class TreeSymbolGenerator():
+class TreeSymbolGenerator(AbstractViewGenerator):
 
     #+----------------------------------------------
     #| Constructor:
     #+----------------------------------------------
     def __init__(self, netzob):
+        AbstractViewGenerator.__init__(self, uuid.uuid4(), "Symbols")
         self.netzob = netzob
         self.treestore = None
         self.treeview = None
@@ -74,10 +77,9 @@ class TreeSymbolGenerator():
         self.lvcolumn = gtk.TreeViewColumn('Symbols')
         self.lvcolumn.set_sort_column_id(1)
         cell = gtk.CellRendererText()
-        self.lvcolumn.pack_start(cell, True)
         cell.set_property('background-set', True)
-        cell.set_property('foreground-set', True)
-        self.lvcolumn.set_attributes(cell, text=1, foreground=3, background=4)
+        self.lvcolumn.pack_start(cell, True)
+        self.lvcolumn.set_attributes(cell, markup=1, background=4)
         self.treeview.append_column(self.lvcolumn)
         self.treeview.show()
 
@@ -92,7 +94,7 @@ class TreeSymbolGenerator():
     #| default:
     #|         Update the treestore in normal mode
     #+----------------------------------------------
-    def default(self):
+    def default(self, selectedSymbol=None):
         self.log.debug("Updating the treestore of the symbol in default mode")
         self.treestore.clear()
 
@@ -109,39 +111,22 @@ class TreeSymbolGenerator():
             # We retrieve the symbols declared in (symbol = symbol)
             symbols = vocabulary.getSymbols()
 
+            toSelectEntry = None
             for symbol in symbols:
-                iter = self.treestore.append(None, ["{0}".format(symbol.getID()), "{0} [{1}]".format(symbol.getName(), str(len(symbol.getMessages()))), "{0}".format(symbol.getScore()), '#000000', '#DEEEF0'])
+                symbolName = symbol.getName()
 
-# GBT : To be deleted after more checks
-#    #+----------------------------------------------
-#    #| messageSelected:
-#    #|         Update the treestore when a message
-#    #|         is a selected
-#    #| @param selectedMessage the selected message
-#    #+----------------------------------------------
-#    def messageSelected(self, selectedMessage):
-#        self.log.debug("Updating the treestore of the symbol with a selected message")
-#        self.treestore.clear()
-#        project = self.netzob.getCurrentProject()
-#        if project == None:
-#            return
-#        for symbol in project.getVocabulary().getSymbols():
-#            tmp_sequences = []
-#            if (len(symbol.getRegex()) > 0):
-#                    tmp_sequences.append(symbol.getRegex())
-#
-#            tmp_sequences.append(self.selectedMessage.getStringData())
-#            tmp_alignator = NeedlemanWunsch()
-#
-#            tmp_score = symbol.getScore()
-#            if (len(tmp_sequences) >= 2):
-#                tmp_regex = tmp_alignator.getRegex(tmp_sequences)
-#                tmp_score = tmp_alignator.computeScore(tmp_regex)
-#            if (tmp_score >= symbol.getScore()):
-#                color = '#66FF00'
-#            else:
-#                color = '#FF0000'
-#                iter = self.treestore.append(None, ["{0}".format(symbol.getID()), "{0}".format(symbol.getName()), "{0}".format(symbol.getScore()), '#000000', color])
+                for filter in symbol.getVisualizationFilters():
+                    symbolName = filter.apply(symbolName)
+
+                symbolName = symbolName + " (" + str(len(symbol.getMessages())) + ")"
+                symbolEntry = [str(symbol.getID()), symbolName, str(symbol.getScore()), '#000000', '#DEEEF0']
+                symbolIter = self.treestore.append(None, symbolEntry)
+                if selectedSymbol != None and str(symbol.getID()) == str(selectedSymbol.getID()):
+                    toSelectEntry = symbolIter
+
+            # if a selection entry has been found, we highlight it
+            if toSelectEntry != None:
+                self.treeview.get_selection().select_iter(toSelectEntry)
 
     #+----------------------------------------------
     #| getSymbolAtPosition:
@@ -175,4 +160,7 @@ class TreeSymbolGenerator():
         return self.treeview
 
     def getScrollLib(self):
+        return self.scroll
+
+    def getWidget(self):
         return self.scroll

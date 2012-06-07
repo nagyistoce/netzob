@@ -38,30 +38,33 @@ from netzob.Common.Type.TypeConvertor import TypeConvertor
 #+---------------------------------------------------------------------------+
 #| C Imports
 #+---------------------------------------------------------------------------+
-import libNeedleman
+import _libNeedleman
 from netzob.Common.Symbol import Symbol
 import uuid
+import random
 from netzob.Inference.Vocabulary.Alignment.NeedlemanAndWunsch import NeedlemanAndWunsch
+
 
 #+---------------------------------------------------------------------------+
 #| UPGMA:
 #|     Supports the use of UPGMA clustering
 #+---------------------------------------------------------------------------+
 class UPGMA(object):
-    
-    def __init__(self, project, symbols, explodeSymbols, nbIteration, minEquivalence, doInternalSlick, defaultFormat, cb_status=None):
-        self.project = project;
+
+    def __init__(self, project, symbols, explodeSymbols, nbIteration, minEquivalence, doInternalSlick, defaultFormat, unitSize, cb_status=None, scores={}):
+        self.project = project
         self.nbIteration = nbIteration
         self.minEquivalence = minEquivalence
         self.doInternalSlick = doInternalSlick
         self.cb_status = cb_status
         self.defaultFormat = defaultFormat
-        
+        self.unitSize = unitSize
         self.log = logging.getLogger('netzob.Inference.Vocabulary.UPGMA.py')
-        
+        self.scores = scores
+        self.path = []
         if explodeSymbols == False:
             self.symbols = symbols
-            
+
         else:
             # Create a symbol for each message
             self.symbols = []
@@ -72,10 +75,9 @@ class UPGMA(object):
                     tmpSymbol.addMessage(m)
                     self.symbols.append(tmpSymbol)
                     i_symbol += 1
-                    
+
         self.log.debug("A number of {0} already aligned symbols will be clustered.".format(str(len(symbols))))
-        
-        
+
     #+-----------------------------------------------------------------------+
     #| cb_executionStatus
     #|     Callback function called by the C extension to provide info on status
@@ -83,11 +85,11 @@ class UPGMA(object):
     #| @param currentMessage a str which represents the current alignment status
     #+-----------------------------------------------------------------------+
     def cb_executionStatus(self, donePercent, currentMessage):
-        if self.cb_status == None :
+        if self.cb_status == None:
             print "[UPGMA status] " + str(donePercent) + "% " + currentMessage
-        else :
+        else:
             self.cb_status(donePercent, currentMessage)
-    
+
     #+-----------------------------------------------------------------------+
     #| executeClustering
     #|     execute the clustering operation
@@ -96,30 +98,34 @@ class UPGMA(object):
     #| @minEquivalence the minimum requirement to consider two symbol as equivalent
     #| @return the new list of symbols
     #+-----------------------------------------------------------------------+
-    def executeClustering(self):    
+    def executeClustering(self):
         self.log.debug("Re-Organize the symbols (nbIteration={0}, min_equivalence={1})".format(self.nbIteration, self.minEquivalence))
-        for iteration in range(0, self.nbIteration):
-            self.cb_executionStatus(50.0, "Iteration {0}/{1} started...".format(str(iteration), str(self.nbIteration)))
-            # Create the score matrix for each symbol
-            (i_maximum, j_maximum, maximum) = self.retrieveEffectiveMaxIJ()
 
-            self.log.debug("Searching for the maximum of equivalence.")
-            if (maximum >= self.minEquivalence):
-                self.log.debug("Merge the column/line {0} with the column/line {1} ; score = {2}".format(str(i_maximum), str(j_maximum), str(maximum)))
-                self.mergeEffectiveRowCol(i_maximum, j_maximum)
-            else:
-                self.log.debug("Stopping the clustering operation since the maximum found is {0} (<{1})".format(str(maximum), str(self.minEquivalence)))
-                break
+        # Find equel messages. Useful for redundant protocols before doing heavy computations with Needleman (complexity=O(N²) where N is #Symbols)
+        ll = len(self.symbols) - 1
+        i_equ = 0
+        while(ll > 0):
+            currentMess = self.symbols[i_equ].getMessages()[0].getReducedStringData()
+            for j in range(ll):
+                if(currentMess == self.symbols[i_equ + j + 1].getMessages()[0].getReducedStringData()):
+                    self.mergeEffectiveRowCol(i_equ, i_equ + j + 1)
+                    self.log.debug("Merge the equal column/line {0} with the column/line {1}".format(str(i_equ), str(j + 1)))
+                    i_equ -= 1
+                    break
+            ll -= 1
+            i_equ += 1
 
+        # Process the UPGMA on symbols
+        self.processUPGMA()
+
+        # Retrieve the alignment of each symbol and the build the associated regular expression
         self.cb_executionStatus(50.0, "Executing last alignment...")
-        alignment = NeedlemanAndWunsch(self.cb_status)
-        # Compute the regex/alignment of each symbol
+        alignment = NeedlemanAndWunsch(self.unitSize, self.cb_status)
         for symbol in self.symbols:
             alignment.alignSymbol(symbol, self.doInternalSlick, self.defaultFormat)
-            
-            
+
         return self.symbols
-            
+
     #+----------------------------------------------
     #| retrieveMaxIJ:
     #|   given a list of symbols, it computes the
@@ -128,18 +134,97 @@ class UPGMA(object):
     #|                   the symbols to merge
     #|                    max score of the two symbols
     #+----------------------------------------------
-    def retrieveEffectiveMaxIJ(self):
+    def processUPGMA(self):
         self.log.debug("Computing the associated matrix")
-        
+
         # Serialize the symbols
-        (serialSymbols, formatSymbols) = TypeConvertor.serializeSymbols(self.symbols)
-        
-        # Execute the Clustering part in C :) (thx fgy)
+        (serialSymbols, formatSymbols) = TypeConvertor.serializeSymbols(self.symbols, self.unitSize, self.scores)
+        self.log.debug("Clustering input format " + formatSymbols)
+
+        # Execute the Clustering part in C
         debug = False
-        (i_max, j_max, maxScore) = libNeedleman.getHighestEquivalentGroup(self.doInternalSlick, len(self.symbols), formatSymbols, serialSymbols, self.cb_executionStatus, debug)
+        logging.debug("Execute the clustering part in C ...")
+        (i_max, j_max, maxScore, scores) = _libNeedleman.getHighestEquivalentGroup(self.doInternalSlick, len(self.symbols), formatSymbols, serialSymbols, self.cb_executionStatus, debug)
+        listScores = TypeConvertor.deserializeScores(self.symbols, scores)
+
+        # Retrieve the scores for each association of symbols
+        self.scores = {}
+        for (iuid, juid, score) in listScores:
+            if iuid not in self.scores.keys():
+                self.scores[iuid] = {}
+            if juid not in self.scores.keys():
+                self.scores[juid] = {}
+            self.scores[iuid][juid] = score
+            if iuid not in self.scores[juid].keys():
+                self.scores[juid][iuid] = score
+
+        # Reduce the UPGMA matrix (merge symbols by similarity)
+        self.computePhylogenicTree()
         return (i_max, j_max, maxScore)
-    
-    
+
+    #+----------------------------------------------
+    #| computePhylogenicTree:
+    #|     Compute directly the phylogenic tree
+    #| max_i : uid of i_maximum
+    #| max_j : uid of j_maximum
+    #| maxScore : the highest global score
+    #+----------------------------------------------
+    def computePhylogenicTree(self):
+        maxScore = 0
+        if len(self.scores) > 1:
+            max_i = max(self.scores, key=lambda x: self.scores[x][max(self.scores[x], key=lambda y: self.scores[x][y])])
+            max_j = max(self.scores[max_i], key=lambda y: self.scores[max_i][y])
+            maxScore = self.scores[max_i][max_j]
+        while len(self.scores) > 1 and maxScore >= self.minEquivalence:
+#            self.computePathTree()
+#            juid_maximum = self.path.pop()
+#            iuid_maximum = self.path.pop()
+#            (i_maximum, j_maximum) = (symbols_uid.index(iuid_maximum),symbols_uid.index(juid_maximum))
+#            self.log.debug("Dic {0}: {1}".format(str(iuid_maximum),str(self.scores[iuid_maximum])))
+#            self.log.debug("Dic {0}: {1}".format(str(juid_maximum),str(self.scores[juid_maximum])))
+#            self.log.debug("Mess {0}".format(self.symbols[i_maximum].getMessages()[0].getData()))
+#            self.log.debug("Mess {0}".format(self.symbols[j_maximum].getMessages()[0].getData()))
+##            self.log.debug("Score avant: {0}".format(str(self.scores)))
+            symbols_uid = [s.getID() for s in self.symbols]  # List of the UID in of symbols
+            (i_maximum, j_maximum) = (symbols_uid.index(max_i), symbols_uid.index(max_j))
+            size_i = len(self.symbols[i_maximum].getMessages())
+            size_j = len(self.symbols[j_maximum].getMessages())
+            self.log.debug("Merge the column/line {0} with the column/line {1} ; score = {2}".format(str(i_maximum), str(j_maximum), str(maxScore)))
+            newuid = self.mergeEffectiveRowCol(i_maximum, j_maximum)
+            self.updateScore(max_i, max_j, newuid, size_i, size_j)
+#            self.log.debug("Score après: {0}".format(str(self.scores)))
+            if len(self.scores) > 1:
+                max_i = max(self.scores, key=lambda x: self.scores[x][max(self.scores[x], key=lambda y: self.scores[x][y])])
+                max_j = max(self.scores[max_i], key=lambda y: self.scores[max_i][y])
+                maxScore = self.scores[max_i][max_j]
+
+    def updateScore(self, iuid, juid, newuid, size_i, size_j):
+        total_size = size_i + size_j
+        del self.scores[iuid]
+        del self.scores[juid]
+        self.scores[newuid] = {}
+        for k in self.scores.keys():
+            if k != newuid:
+                self.scores[k][newuid] = (size_i * self.scores[k][iuid] + size_j * self.scores[k][juid]) * 1.0 / total_size
+                del self.scores[k][iuid]
+                del self.scores[k][juid]
+                self.scores[newuid][k] = self.scores[k][newuid]
+
+    def computePathTree(self):
+        if self.path == []:
+            clusterIndex = int(random.random() * len(self.scores.keys()))
+            self.path.append(self.scores.keys()[0])
+        if len(self.path) > 1:  # Check if Cl-1,Cl-2 minimum pair
+            lastId = self.path[len(self.path) - 1]
+            if max(self.scores[lastId], key=lambda x: self.scores[lastId][x]) == self.path[len(self.path) - 2]:
+                return
+        while True:
+            lastId = self.path[len(self.path) - 1]
+            juid = max(self.scores[lastId], key=lambda x: self.scores[lastId][x])
+            self.path.append(juid)
+            if max(self.scores[juid], key=lambda x: self.scores[juid][x]) == lastId:
+                break
+
     #+----------------------------------------------
     #| mergeRowCol:
     #|   Merge the symbols i and j in the "symbols" structure
@@ -158,14 +243,15 @@ class UPGMA(object):
         messages.extend(symbol1.getMessages())
         messages.extend(symbol2.getMessages())
 
-        newSymbol = Symbol(str(uuid.uuid4()), "Symbol", self.project)
+        newSymbol = Symbol(str(uuid.uuid4()), symbol1.getName(), self.project, minEqu=self.minEquivalence)
         for message in messages:
             newSymbol.addMessage(message)
 
         # Append th new symbol to the "symbols" structure
-        self.symbols.append(newSymbol)  
-        
-        
+        self.symbols.append(newSymbol)
+
+        return newSymbol.getID()
+
     #+----------------------------------------------
     #| mergeOrphanSymbols:
     #|   try to merge orphan symbols by progressively
@@ -201,6 +287,7 @@ class UPGMA(object):
                 # Reduce the size of the messages by 50% from the left
                 for orphan in self.symbols:
                     orphan.getMessages()[0].setLeftReductionFactor(leftReductionFactor)
+                    orphan.getMessages()[0].setRightReductionFactor(0)
 
                 self.log.info("Start to merge orphans reduced by {0}% from the left".format(str(leftReductionFactor)))
                 self.executeClustering()
@@ -211,33 +298,42 @@ class UPGMA(object):
                 # Reduce the size of the messages from the right
                 for orphan in self.symbols:
                     orphan.getMessages()[0].setRightReductionFactor(rightReductionFactor)
+                    orphan.getMessages()[0].setLeftReductionFactor(0)
 
                 self.log.info("Start to merge orphans reduced by {0}% from the right".format(str(rightReductionFactor)))
                 self.executeClustering()
                 currentReductionIsLeft = True
 
             for orphan in self.symbols:
+                for message in orphan.getMessages():
+                    message.setLeftReductionFactor(0)
+                    message.setRightReductionFactor(0)
                 tmp_symbols.append(orphan)
             self.symbols = tmp_symbols
 
         self.cb_executionStatus(50.0, "Executing last alignment...")
-        alignment = NeedlemanAndWunsch(self.cb_status)
+        alignment = NeedlemanAndWunsch(self.unitSize, self.cb_status)
         # Compute the regex/alignment of each symbol
         for symbol in self.symbols:
             alignment.alignSymbol(symbol, self.doInternalSlick, self.defaultFormat)
         return self.symbols
-        
-        
+
     #+-----------------------------------------------------------------------+
     #| deserializeGroups
     #|     Useless (functionally) function created for testing purposes
     #| @param symbols a list of symbols
     #| @returns number Of Deserialized symbols
     #+-----------------------------------------------------------------------+
-    def deserializeGroups(self, symbols): 
+    def deserializeGroups(self, symbols):
         # First we serialize the messages
-        (serialSymbols, format) = TypeConvertor.serializeSymbols(symbols)
-        
-        debug = True
-        return libNeedleman.deserializeGroups(len(symbols), format, serialSymbols, debug)
-      
+        (serialSymbols, format) = TypeConvertor.serializeSymbols(symbols, self.unitSize, self.scores)
+
+        debug = False
+        return _libNeedleman.deserializeGroups(len(symbols), format, serialSymbols, debug)
+
+    #+-----------------------------------------------------------------------+
+    #| getScores
+    #|     get the dictionary of scores
+    #+-----------------------------------------------------------------------+
+    def getScores(self):
+        return self.scores

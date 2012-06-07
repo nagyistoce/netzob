@@ -59,7 +59,7 @@ class ResourcesConfiguration(object):
     #+----------------------------------------------
     #| initializeResources:
     #+----------------------------------------------
-    def initializeResources():
+    def initializeResources(forceWSCreation=False):
         # We search for the
         # STATIC resources (images, documentations, ...)
         # USER resources (workspaces, configurations, ...)
@@ -73,7 +73,11 @@ class ResourcesConfiguration(object):
             logging.fatal("The static resources were not found !")
             return False
 
-        userPath = ResourcesConfiguration.verifyUserResources()
+        if not forceWSCreation:
+            userPath = ResourcesConfiguration.verifyUserResources()
+        else:
+            userPath = None
+
         if userPath == None:
             logging.info("The user resources were not found, we ask to the user its Netzob home directory")
             userPath = ResourcesConfiguration.askForUserDir()
@@ -121,9 +125,14 @@ class ResourcesConfiguration(object):
         staticPath = NetzobResources.STATIC_DIR
         if staticPath == "":
             return None
+        localStaticPath = NetzobResources.LOCAL_STATIC_DIR
+        if localStaticPath == "":
+            return None
 
         logging.debug("Static path declared : " + staticPath)
-        if (os.path.isdir(staticPath)):
+        if (os.path.isdir(localStaticPath)):
+            return localStaticPath
+        elif (os.path.isdir(staticPath)):
             return staticPath
 
         return None
@@ -171,7 +180,10 @@ class ResourcesConfiguration(object):
 
     @staticmethod
     def getStaticResources():
-        return NetzobResources.STATIC_DIR
+        if (os.path.isdir(NetzobResources.LOCAL_STATIC_DIR)):
+            return NetzobResources.LOCAL_STATIC_DIR
+        elif (os.path.isdir(NetzobResources.STATIC_DIR)):
+            return NetzobResources.STATIC_DIR
 
     @staticmethod
     def getWorkspaceFile():

@@ -25,8 +25,7 @@
 //|             Supélec, http://www.rennes.supelec.fr/ren/rd/cidre/           |
 //+---------------------------------------------------------------------------+
 
-#ifndef __libNeedleman_header
-#define __libNeedleman_header
+#pragma once
 
 //+---------------------------------------------------------------------------+
 //| Imports
@@ -43,22 +42,32 @@
 //+---------------------------------------------------------------------------+
 typedef enum { FALSE, TRUE } Bool;
 
+// Definition of a score vector
+typedef struct {
+  float s1;
+  float s2;
+  float s3;
+  float value;
+} t_score;
+
 // Definition of a message :
 typedef struct {
-  unsigned short int len; // length of the message
-  unsigned char *message; // a message
+  unsigned int len; // length of the message
+  unsigned char *alignment; // a alignment/message
   unsigned char *mask; // its mask
+  t_score *score;
 } t_message;
 
 //Definition of a group of messages
 typedef struct {
-  unsigned short int len; // nb of messages in the group
+  unsigned int len; // nb of messages in the group
   t_message *messages; // a list of messages
+  float * scores; //list of score allready computed.
 } t_group;
 
 // Definition of a group of group (a group of symbol)
 typedef struct {
-  unsigned short int len; // nb of group
+  unsigned int len; // nb of group
   t_group *groups; // a list of group
 } t_groups;
 
@@ -67,14 +76,6 @@ typedef struct {
   int j;  // group2 number
   float score; // score of equivalence between group1 and group2
 } t_equivalentGroup;
-
-//Definition of a aligned set of messages
-typedef struct {
-  unsigned short int len; // size of the regex
-  unsigned char *regex; // the actual regex
-  unsigned char *mask; // its mask
-  float score;
-} t_regex;
 
 // Cost definitions for the alignment
 const short int MATCH = 10;
@@ -103,49 +104,46 @@ void getHighestEquivalentGroup(t_equivalentGroup * result, Bool doInternalSlick,
 //| py_alignMessages : Python wrapper for alignMessages
 //+---------------------------------------------------------------------------+
 static PyObject* py_alignMessages(PyObject* self, PyObject* args);
-void alignMessages(t_regex * regex, Bool doInternalSlick, unsigned short int nbMessages, t_group* messages, Bool debugMode);
+void alignMessages(t_message * resMessage, Bool doInternalSlick, unsigned int nbMessages, t_group* messages, Bool debugMode);
 
 //+---------------------------------------------------------------------------+
 //| py_alignTwoMessages : Python wrapper for alignTwoMessages
 //+---------------------------------------------------------------------------+
 static PyObject* py_alignTwoMessages(PyObject* self, PyObject* args);
-int alignTwoMessages(t_regex * regex, Bool doInternalSlick, t_regex * regex1, t_regex * regex2, Bool debugMode);
+int alignTwoMessages(t_message * resMessage, Bool doInternalSlick, t_message * message1, t_message * message2, Bool debugMode);
 
 //+---------------------------------------------------------------------------+
 //| py_deserializeMessages : Python wrapper for deserializeMessages
 //+---------------------------------------------------------------------------+
 static PyObject* py_deserializeMessages(PyObject* self, PyObject* args);
-unsigned short int deserializeMessages(t_group *, unsigned char *, int, unsigned char *, int, int, Bool);
+unsigned int deserializeMessages(t_group *, unsigned char *, int, unsigned char *, int, int, Bool);
 
 //+---------------------------------------------------------------------------+
 //| py_deserializeMGroups : Python wrapper for deserializeGroups
 //+---------------------------------------------------------------------------+
 static PyObject* py_deserializeGroups(PyObject* self, PyObject* args);
-unsigned short int deserializeGroups(t_groups *, unsigned char *, int, unsigned char *, int, int, Bool);
+unsigned int deserializeGroups(t_groups *, unsigned char *, int, unsigned char *, int, int, Bool);
 
 //+---------------------------------------------------------------------------+
 //| initLibNeedleman : Python will use this function to init the module
 //+---------------------------------------------------------------------------+
-void initlibNeedleman(void);
+PyMODINIT_FUNC init_libNeedleman(void);
+
+//+---------------------------------------------------------------------------+
+//| Scores : functions for their computations
+//+---------------------------------------------------------------------------+
+float getScoreRatio(t_message *);
+float getScoreDynSize(unsigned int, unsigned int);
+float getScoreRang(t_message *);
+float computeDistance(t_score *);
 
 //+---------------------------------------------------------------------------+
 //| hexdump : for debug purposes
 //+---------------------------------------------------------------------------+
-int hexdump(unsigned char *bug, int dlen);
+void hexdump(unsigned char *bug, int dlen);
 
 //+---------------------------------------------------------------------------+
-//| dumpRegex : for debug purposes
+//| dumpMessage : for debug purposes
 //+---------------------------------------------------------------------------+
-void dumpRegex(t_regex regex);
+void dumpMessage(t_message message);
 
-
-static PyMethodDef libNeedleman_methods[] = {
-  {"getHighestEquivalentGroup", py_getHighestEquivalentGroup, METH_VARARGS},
-  {"alignMessages", py_alignMessages, METH_VARARGS},
-  {"alignTwoMessages", py_alignTwoMessages, METH_VARARGS},
-  {"deserializeMessages", py_deserializeMessages, METH_VARARGS},
-  {"deserializeGroups", py_deserializeGroups, METH_VARARGS},
-  {NULL, NULL}
-};
-
-#endif

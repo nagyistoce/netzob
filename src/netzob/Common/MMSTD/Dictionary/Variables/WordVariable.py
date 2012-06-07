@@ -45,106 +45,220 @@ from lxml import etree
 #+---------------------------------------------------------------------------+
 from netzob.Common.MMSTD.Dictionary.Variable import Variable
 from netzob.Common.Type.TypeConvertor import TypeConvertor
+from netzob.Common.Type.TypeIdentifier import TypeIdentifier
 
 
 #+---------------------------------------------------------------------------+
 #| WordVariable:
-#|     Definition of a word variable defined in a dictionary
+#|     Definition of a word variable
+#| a word is an ASCII set of characters (a-zA-Z)(a-zA-Z)*
 #+---------------------------------------------------------------------------+
 class WordVariable(Variable):
 
-    def __init__(self, id, name, mutable, value):
-        Variable.__init__(self, "Word", id, name, mutable)
+    # OriginalValue : must be an ASCII word
+    def __init__(self, id, name, originalValue):
+        Variable.__init__(self, "Word", id, name)
         self.log = logging.getLogger('netzob.Common.MMSTD.Dictionary.Variables.WordVariable.py')
+        self.originalValue = originalValue
 
-        self.strVal = value
-        self.binVal = TypeConvertor.string2bin(self.strVal, "big")
+        # Set the original value (in bitarray)
+        self.computeCurrentValue(self.originalValue)
 
-    def compare(self, value, indice, negative, memory):
-        self.log.debug("Compare received : '" + str(value[indice:]) + "' with '" + str(self.binVal) + "' ")
-        tmp = value[indice:]
-        if len(tmp) >= len(self.binVal):
-            if tmp[:len(self.binVal)] == self.binVal:
-                self.log.debug("Compare successful")
-                return indice + len(self.binVal)
-            else:
-                self.log.info("error in the comparison : " + str(tmp[:len(self.binVal)]) + " != " + str(self.binVal))
-                return -1
+    #+-----------------------------------------------------------------------+
+    #| computeCurrentValue :
+    #|     Transform and save the provided ('toto') as current value
+    #+-----------------------------------------------------------------------+
+    def computeCurrentValue(self, strValue):
+        if strValue != None:
+            strCurrentValue = strValue
+            binCurrentValue = TypeConvertor.string2bin(strValue)
+            self.currentValue = (binCurrentValue, strCurrentValue)
         else:
-            self.log.debug("Compare fail")
-            return -1
+            self.currentValue = None
 
-    def send(self, negative, memory):
-        return (self.binVal, self.strVal)
-
-    def getValue(self, negative, dictionary):
-        return (self.binVal, self.strVal)
-
-    def getDescription(self):
-        if self.isMutable():
-            mut = "[M]"
-        else:
-            mut = "[!M]"
-        return "WordVariable " + mut + " (" + self.strVal + ")"
-
-#
-#
-#    def generateValue(self, negative, dictionary):
-#        # Generate a WORD value
+    #+-----------------------------------------------------------------------+
+    #| generateValue :
+    #|     Generate a valid value for the variable ('babar'...)
+    #+-----------------------------------------------------------------------+
+    def generateValue(self):
+        # todo
+        self.log.debug("Generating value ")
+        return 'babar'
+# Generate a WORD value
 #        nb_letter = random.randint(0, 10)
 #        self.strVal = ''.join(random.choice(string.ascii_letters) for x in range(nb_letter))
 #        self.binVal = self.string2bin(self.strVal)
 #        self.log.debug("Generated : " + self.strVal)
 #        self.log.debug("Generated -bin)= " + str(self.binVal))
+
+    #+-----------------------------------------------------------------------+
+    #| getValue :
+    #|     Returns the current value of the variable
+    #|     it can be the original value if its set and not forget
+    #|     or the value in memory if it has one
+    #|     else its NONE
+    #+-----------------------------------------------------------------------+
+    def getValue(self, negative, vocabulary, memory):
+        if self.getCurrentValue() != None:
+            return self.getCurrentValue()
+
+        if memory.hasMemorized(self):
+            return memory.recall(self)
+
+        return None
+
+    #+-----------------------------------------------------------------------+
+    #| getValueToSend :
+    #|     Returns the current value of the variable
+    #|     it can be the original value if its set and not forget
+    #|     or the value in memory if it has one
+    #|     or it generates one and save its value in memory
+    #+-----------------------------------------------------------------------+
+    def getValueToSend(self, negative, vocabulary, memory):
+        if self.getCurrentValue() != None:
+            return self.getCurrentValue()
+
+        if memory.hasMemorized(self):
+            return memory.recall(self)
+
+        # We generate a new value
+        strValue = self.generateValue()
+        binValue = TypeConvertor.string2bin(strValue)
+
+        # We save in memory the current value
+        memory.memorize(self, (binValue, strValue))
+
+        # We return the newly generated and memorized value
+        return (binValue, strValue)
+
+     #+-----------------------------------------------------------------------+
+    #| getUncontextualizedDescription :
+    #|     Returns the uncontextualized description of the variable (no use of memory or vocabulary)
+    #+-----------------------------------------------------------------------+
+    def getUncontextualizedDescription(self):
+        return "[WORD]" + str(self.getName()) + "= (orig=" + str(self.getOriginalValue()) + ")"
+
+    #+-----------------------------------------------------------------------+
+    #| getDescription :
+    #|     Returns the full description of the variable
+    #+-----------------------------------------------------------------------+
+    def getDescription(self, negative, vocabulary, memory):
+        return "[WORD]" + str(self.getName()) + "= (getValue=" + str(self.getValue(negative, vocabulary, memory)) + ")"
+
+    #+-----------------------------------------------------------------------+
+    #| compare :
+    #|     Returns the number of letters which match the variable
+    #|     it can return the followings :
+    #|     -1     : doesn't match
+    #|     >=0    : it matchs and the following number of bits were eaten
+    #+-----------------------------------------------------------------------+
+    def compare(self, value, indice, negative, vocabulary, memory):
+        localValue = self.getValue(negative, vocabulary, memory)
+        # In case we can't compare with a known value, we compare only the possibility to learn it afterward
+#        if localValue == None:
+        self.log.debug("We compare the format (will we be able to learn it afterwards ?")
+        return self.compareFormat(value, indice, negative, vocabulary, memory)
+#        else:
+#            (binVal, strVal) = localValue
+#            self.log.info("Compare received : '" + str(value[indice:]) + "' with '" + strVal + "' ")
+#            tmp = value[indice:]
+#            if len(tmp) >= len(binVal):
+#                self.log.info("Compare %s with %s" % (tmp[:len(binVal)], binVal))
 #
-#    def learn(self, val, indice, isForced, dictionary):
-#        self.log.debug("Received : " + str(val))
-#
-#        if self.binVal == None or isForced:
-#            tmp = val[indice:]
-#
-#            res = ""
-#            i = 0
-#            finish = False
-#            while not finish:
-#                v = int(tmp[i: i + 2], 16)
-#                if v > 0x21 and v <= 0x7e:
-#                    res += chr(v)
-#                    i = i + 2
+#                if tmp[:len(binVal)] == binVal:
+#                    self.log.info("Compare successful")
+#                    return indice + len(binVal)
 #                else:
-#                    finish = True
-#
-#            if i > 0:
-#                self.strVal = res
-#                self.binVal = binascii.unhexlify(self.strVal)
-#
-#                return indice + i
-#
-#
-#
-#        return -1
+#                    self.log.info("error in the comparison")
+#                    return -1
+#            else:
+#                self.log.info("Compare fail")
+#                return -1
 
-    def save(self, root, namespace):
-        xmlWordVariable = etree.SubElement(root, "{" + namespace + "}variable")
-        xmlWordVariable.set("id", str(self.getID()))
-        xmlWordVariable.set("name", str(self.getName()))
-        xmlWordVariable.set("mutable", TypeConvertor.bool2str(self.isMutable()))
+    #+-----------------------------------------------------------------------+
+    #| compareFormat :
+    #|     Compute if the provided data is "format-compliant"
+    #|     and return the size of the biggest compliant data
+    #+-----------------------------------------------------------------------+
+    def compareFormat(self, value, indice, negative, vocabulary, memory):
+        tmp = value[indice:]
+        size = len(tmp)
+        if size <= 16:
+            self.log.debug("Too small, not even 16 bits available (2 letters)")
+            return -1
+        for i in range(size, 16, -1):
+            subValue = value[indice:indice + i - 1]
+            if (i - 1) % 8 == 0:
+                strVal = TypeConvertor.bin2string(TypeConvertor.strBitarray2Bitarray(subValue))
+                typeIdentifier = TypeIdentifier()
+                if typeIdentifier.isAscii(strVal):
+                    self.log.debug("Its an ascii : (" + str(strVal) + ")")
+                    if (not ' ' in strVal and not '\n' in strVal and not '\r' in strVal):
+                        self.log.debug("Its an ascii without space : (" + str(strVal) + ")")
+                        self.log.debug("Binary value of the ascii  : %s" % str(TypeConvertor.strBitarray2Bitarray(subValue)))
+                        return indice + i - 1
 
-        xmlWordVariable.set("{http://www.w3.org/2001/XMLSchema-instance}type", "netzob:WordVariable")
+        return -1
 
-        # Definition of a binary variable
-        xmlWordVariableValue = etree.SubElement(xmlWordVariable, "{" + namespace + "}value")
-        xmlWordVariableValue.text = self.strVal
-        return xmlWordVariable
+    #+-----------------------------------------------------------------------+
+    #| learn :
+    #|     Exactly like "compare" but it stores learns from the provided message
+    #|     it can return the followings :
+    #|     -1     : doesn't match
+    #|     >=0    : it matchs and the following number of bits were eaten
+    #+-----------------------------------------------------------------------+
+    def learn(self, value, indice, negative, vocabulary, memory):
+        # First we retrieve the size of the value to memorize
+        size = self.compare(value, indice, negative, vocabulary, memory)
+        if size > 0:
+            # memorize
+            self.log.debug("Memorize : " + str(value[indice:size]))
+            memory.memorize(self, (value[indice:size], TypeConvertor.bin2string(TypeConvertor.strBitarray2Bitarray(value[indice:size]))))
+            return size
+        else:
+            self.log.debug("Incompatible for learning")
+            return -1
+
+    #+-----------------------------------------------------------------------+
+    #| restore :
+    #|     Restore learnt value from the last execution of the variable
+    #+-----------------------------------------------------------------------+
+    def restore(self, vocabulary, memory):
+        memory.restore(self)
+
+    def getCurrentValue(self):
+        return self.currentValue
+
+    def getOriginalValue(self):
+        return self.originalValue
+
+    #+-----------------------------------------------------------------------+
+    #| toXML :
+    #|     Returns the XML description of the variable
+    #+-----------------------------------------------------------------------+
+    def toXML(self, root, namespace):
+        xmlVariable = etree.SubElement(root, "{" + namespace + "}variable")
+        # Header specific to the definition of a variable
+        xmlVariable.set("id", str(self.getID()))
+        xmlVariable.set("name", str(self.getName()))
+        xmlVariable.set("{http://www.w3.org/2001/XMLSchema-instance}type", "netzob:WordVariable")
+
+        # Original Value
+        if self.getOriginalValue() != None:
+            xmlHexVariableOriginalValue = etree.SubElement(xmlVariable, "{" + namespace + "}originalValue")
+            xmlHexVariableOriginalValue.text = self.getOriginalValue()
 
     @staticmethod
     def loadFromXML(xmlRoot, namespace, version):
         if version == "0.1":
             varId = xmlRoot.get("id")
             varName = xmlRoot.get("name")
-            varIsMutable = TypeConvertor.str2bool(xmlRoot.get("mutable"))
 
-            varValue = xmlRoot.find("{" + namespace + "}value").text
-            return WordVariable(varId, varName, varIsMutable, varValue)
+            xmlWordVariableOriginalValue = xmlRoot.find("{" + namespace + "}originalValue")
+            if xmlWordVariableOriginalValue != None:
+                originalValue = xmlWordVariableOriginalValue.text
+            else:
+                originalValue = None
 
+            return WordVariable(varId, varName, originalValue)
         return None

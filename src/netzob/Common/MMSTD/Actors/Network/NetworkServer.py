@@ -30,6 +30,7 @@
 #+---------------------------------------------------------------------------+
 import logging
 import SocketServer
+SocketServer.TCPServer.allow_reuse_address = True
 import threading
 import time
 import uuid
@@ -51,9 +52,11 @@ from netzob.Common.MMSTD.Dictionary.Memory import Memory
 #+---------------------------------------------------------------------------+
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
-    def __init__(self, connectionInfos, UDPConnectionHandler):
-        SocketServer.TCPServer.__init__(self, connectionInfos, UDPConnectionHandler)
+    def __init__(self, connectionInfos, TCPConnectionHandler):
+        SocketServer.TCPServer.__init__(self, connectionInfos, TCPConnectionHandler)
         self.instances = []
+        self.allow_reuse_address = True
+        self.multipleConnectionAllowed = True
 
     def getVocabulary(self):
         return self.vocabulary
@@ -82,9 +85,39 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def getGeneratedInstances(self):
         return self.instances
 
-    def shutdown(self):
-        logging.info("shutingdown")
-        SocketServer.TCPServer.shutdown(self)
+    def setCBWhenAClientConnects(self, cb):
+        self.cbClientConnected = cb
+
+    def setCBWhenAClientDisconnects(self, cb):
+        self.cbClientDisconnected = cb
+
+    def setCBWhenInputSymbol(self, cb):
+        self.cbInputSymbol = cb
+
+    def setCBWhenOutputSymbol(self, cb):
+        self.cbOutputSymbol = cb
+
+    def notifyAClientIsConnected(self):
+        self.cbClientConnected()
+
+    def notifyAClientIsDisconnected(self):
+        self.cbClientDisconnected()
+
+    def getCBInputSymbol(self):
+        return self.cbInputSymbol
+
+    def getCBOutputSymbol(self):
+        return self.cbOutputSymbol
+
+    def setMultipleConnectionIsAllowed(self, multipleConnectionAllowed):
+        self.multipleConnectionAllowed = multipleConnectionAllowed
+
+    def isMultipleConnectionAllowed(self):
+        return self.multipleConnectionAllowed
+
+#    def shutdown(self):
+#        logging.info("shutingdown")
+#        SocketServer.TCPServer.shutdown(self)
 
 
 class ThreadedUDPServer(SocketServer.ThreadingMixIn, SocketServer.UDPServer):
@@ -107,16 +140,52 @@ class ThreadedUDPServer(SocketServer.ThreadingMixIn, SocketServer.UDPServer):
     def setMaster(self, master):
         self.master = master
 
+    def setCBWhenAClientConnects(self, cb):
+        self.cbClientConnected = cb
+
+    def setCBWhenAClientDisconnects(self, cb):
+        self.cbClientDisconnected = cb
+
+    def setCBWhenInputSymbol(self, cb):
+        self.cbInputSymbol = cb
+
+    def setCBWhenOutputSymbol(self, cb):
+        self.cbOutputSymbol = cb
+
+    def notifyAClientIsConnected(self):
+        self.cbClientConnected()
+
+    def notifyAClientIsDisconnected(self):
+        self.cbClientDisconnected()
+
+    def getCBInputSymbol(self):
+        return self.cbInputSymbol
+
+    def getCBOutputSymbol(self):
+        return self.cbOutputSymbol
+
+    def setMultipleConnectionIsAllowed(self, multipleConnectionAllowed):
+        self.multipleConnectionAllowed = multipleConnectionAllowed
+
+    def isMultipleConnectionAllowed(self):
+        return self.multipleConnectionAllowed
+
 
 class TCPConnectionHandler(SocketServer.BaseRequestHandler):
 
     def __init__(self, request, client_address, server):
+        server.allow_reuse_address = True
         SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
         self.subVisitor = None
 
     def handle(self):
         self.log = logging.getLogger('netzob.Common.MMSTD.Actors.Network.NetworkServer_ConnectionHandler.py')
+
+        if not self.server.isMultipleConnectionAllowed() and len(self.server.getGeneratedInstances()) > 0:
+#            self.log.warn("We do not adress this client, another one already connected")
+            return
         self.log.info("A client has just initiated a connection on the server.")
+        self.server.notifyAClientIsConnected()
 
         initialState = self.server.getInitialState()
         vocabulary = self.server.getVocabulary()
@@ -129,7 +198,7 @@ class TCPConnectionHandler(SocketServer.BaseRequestHandler):
         instanciatedNetworkServer = InstanciatedNetworkServer(self.request)
 
         # Create the input and output abstraction layer
-        abstractionLayer = AbstractionLayer(instanciatedNetworkServer, vocabulary, Memory(vocabulary.getVariables()))
+        abstractionLayer = AbstractionLayer(instanciatedNetworkServer, vocabulary, Memory(vocabulary.getVariables()), self.server.getCBInputSymbol(), self.server.getCBOutputSymbol())
 
         # And we create an MMSTD visitor for this
         self.subVisitor = MMSTDVisitor("Instance-" + str(uuid.uuid4()), automata, isMaster, abstractionLayer)
@@ -140,9 +209,24 @@ class TCPConnectionHandler(SocketServer.BaseRequestHandler):
         # save it
         self.server.addGeneratedInstance(self.subVisitor)
 
-        while (self.subVisitor.isAlive()):
-            ready = select.select([self.request], [], [], 1)
-            time.sleep(0.1)
+        finish = not self.subVisitor.isAlive()
+
+        while (not finish):
+            try:
+                ready = select.select([self.request], [], [], 1)
+                time.sleep(0.1)
+                finish = not self.subVisitor.isAlive()
+            except:
+                self.log.warn("The socket is not anymore opened !")
+                finish = True
+#        instanciatedNetworkServer.close()
+
+        self.subVisitor.join(None)
+
+        self.server.notifyAClientIsDisconnected()
+#        self.server.shutdown_request(self.request)
+#        self.server.close_request(self.request)
+#        self.server.shutdown()
 
         self.log.warn("End of the execution of the TCP Connection handler")
 #    def finish(self):
@@ -154,16 +238,28 @@ class TCPConnectionHandler(SocketServer.BaseRequestHandler):
 class UDPConnectionHandler(SocketServer.DatagramRequestHandler):
 
     def handle(self):
+
+        self.server.notifyAClientIsConnected()
+
         self.log = logging.getLogger('netzob.Common.MMSTD.Actors.Network.NetworkServer_ConnectionHandler.py')
         self.log.info("A client has just initiated a connection on the server.")
 
         # Create the input and output abstraction layer
-        abstractionLayer = AbstractionLayer(self.rfile, self.wfile, self.server.getModel().getVocabulary(), Memory(self.server.getModel().getVocabulary().getVariables()))
+        abstractionLayer = AbstractionLayer(self.rfile, self.wfile, self.server.getModel().getVocabulary(), Memory(self.server.getModel().getVocabulary().getVariables()), self.server.getCBInputSymbol(), self.server.getCBOutputSymbol())
 
         # Initialize a dedicated automata and creates a visitor
         modelVisitor = MMSTDVisitor(self.server.getModel(), self.server.isMaster(), abstractionLayer)
         self.log.info("An MMSTDVistor has been instantiated and assigned to the current network client.")
-        modelVisitor.run()
+        modelVisitor.start()
+
+        # save it
+        self.server.addGeneratedInstance(modelVisitor)
+
+        while (modelVisitor.isAlive()):
+            ready = select.select([self.request], [], [], 1)
+            time.sleep(0.1)
+
+        self.server.notifyAClientIsDisconnected()
 
 
 #+---------------------------------------------------------------------------+
@@ -177,33 +273,64 @@ class NetworkServer(AbstractActor):
         AbstractActor.__init__(self, True, False)
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Common.MMSTD.Actors.Network.NetworkServer.py')
+
         self.port = port
         self.sourcePort = sourcePort
         self.host = host
         self.protocol = protocol
         self.server = None
         self.instantiatedServers = []
+        self.allowMultipleClients = True
 
-    def openServer(self, vocabulary, initialState, master):
+    def openServer(self, vocabulary, initialState, master, cb_whenAClientConnects, cb_whenAClientDisconnects, cb_registerInputSymbol, cb_registerOutputSymbol):
         # Instantiates the server
-        if self.protocol == "UDP":
-            self.log.info("Configure an UDP Network Server to listen on " + self.host + ":" + str(self.port) + ".")
-            self.server = ThreadedUDPServer((self.host, self.port), UDPConnectionHandler)
+        maxNumberOfAttempts = 3
+        nbAttempts = 0
+        error = False
+        finish = False
+        while not finish:
+            finish = True
+            try:
+                if self.protocol == "UDP":
+                    self.log.info("Configure an UDP Network Server to listen on " + self.host + ":" + str(self.port) + ".")
+                    self.server = ThreadedUDPServer((self.host, self.port), UDPConnectionHandler)
+                else:
+                    self.log.info("Configure a TCP Network Server to listen on " + self.host + ":" + str(self.port) + ".")
+                    self.server = ThreadedTCPServer((self.host, self.port), TCPConnectionHandler)
+            except:
+                self.log.warn("Impossible to open a server, attempts = " + str(nbAttempts) + "/" + str(maxNumberOfAttempts))
+                finish = False
+                nbAttempts += 1
+                if nbAttempts > maxNumberOfAttempts:
+                    finish = True
+                    error = True
+            time.sleep(5)
+
+        if not error:
+            self.server.setCBWhenAClientConnects(cb_whenAClientConnects)
+            self.server.setCBWhenAClientDisconnects(cb_whenAClientDisconnects)
+            self.server.setCBWhenInputSymbol(cb_registerInputSymbol)
+            self.server.setCBWhenOutputSymbol(cb_registerOutputSymbol)
+            self.server.allow_reuse_address = True
+            self.server.setVocabulary(vocabulary)
+            self.server.setInitialState(initialState)
+            self.server.setMaster(master)
+            self.server.setMultipleConnectionIsAllowed(self.allowMultipleClients)
+            self.server_thread = threading.Thread(target=self.server.serve_forever)
+            self.server_thread.daemon = True
+            self.log.info("Start the server")
+            self.server_thread.start()
         else:
-            self.log.info("Configure a TCP Network Server to listen on " + self.host + ":" + str(self.port) + ".")
-            self.server = ThreadedTCPServer((self.host, self.port), TCPConnectionHandler)
-
-        self.server.setVocabulary(vocabulary)
-        self.server.setInitialState(initialState)
-        self.server.setMaster(master)
-
-        self.server_thread = threading.Thread(target=self.server.serve_forever)
-        self.log.info("Start the server")
-        self.server_thread.start()
+            self.log.warn("The server cannot be started")
 
     def close(self):
-        self.log.info("Shuting down the server")
+        self.log.info("Shutdown down the server")
+        self.server.server_close()
         self.server.shutdown()
+
+        self.log.info("The thread which hosts the server has finished")
+
+        self.log.info("The server has been shutted down")
 
     def getInputMessages(self):
         return []
@@ -214,6 +341,9 @@ class NetworkServer(AbstractActor):
     def getMemory(self):
         return []
 
+    def setAllowMultipleClients(self, allowMultipleClients):
+        self.allowMultipleClients = allowMultipleClients
+
     def getGeneratedInstances(self):
         if self.server == None:
             return []
@@ -221,6 +351,8 @@ class NetworkServer(AbstractActor):
 
     def stop(self):
         self.log.debug("Stopping the thread of the network server")
+
+        self.close()
         AbstractActor.stop(self)
 
     #+-----------------------------------------------------------------------+

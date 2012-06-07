@@ -29,7 +29,6 @@
 #| Standard library imports
 #+---------------------------------------------------------------------------+
 import logging
-import time
 import gtk
 import uuid
 
@@ -48,7 +47,10 @@ from netzob.Common.MMSTD.Symbols.impl.DictionarySymbol import DictionarySymbol
 from netzob.Common.MMSTD.Transitions.impl.SemiStochasticTransition import SemiStochasticTransition
 from netzob.Common.Grammar import Grammar
 from netzob.Inference.Grammar.AutomaticGrammarInferenceView import AutomaticGrammarInferenceView
-from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol 
+from netzob.Inference.Grammar.AutomaticGrammarAbstractionView import AutomaticGrammarAbstractionView
+from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol
+from netzob.Common.MMSTD.MMSTD import MMSTD
+from netzob.Common.MMSTD.Symbols.impl.UnknownSymbol import UnknownSymbol
 
 
 #+---------------------------------------------------------------------------+
@@ -90,7 +92,6 @@ class UIGrammarInference:
         if netzob.getCurrentProject() != None:
             self.grammar = netzob.getCurrentProject().getGrammar()
 
-        self.grammar = None
         self.states = []
         self.initialState = None
         self.transitions = []
@@ -105,7 +106,7 @@ class UIGrammarInference:
         self.mainPanel.show()
 
         # First we add a table
-        leftFormTable = gtk.Table(rows=6, columns=2, homogeneous=False)
+        leftFormTable = gtk.Table(rows=7, columns=2, homogeneous=False)
 
         # We add the button for the automatic inference process
         self.grammarAutomaticInferenceButton = gtk.Button("Open wizard for automatic inference")
@@ -114,12 +115,19 @@ class UIGrammarInference:
         self.grammarAutomaticInferenceButton.set_sensitive(True)
         leftFormTable.attach(self.grammarAutomaticInferenceButton, 0, 2, 0, 1, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
 
+        # Add the button to abstract the current grammar
+        self.grammarAbstractionButton = gtk.Button("Abstract current grammar")
+        self.grammarAbstractionButton.connect("clicked", self.showAbstractionPanel)
+        self.grammarAbstractionButton.show()
+        self.grammarAbstractionButton.set_sensitive(True)
+        leftFormTable.attach(self.grammarAbstractionButton, 0, 2, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
+
         # CREATE A STATE
         self.createStateButton = gtk.Button("Create a state")
         self.createStateButton.show()
         self.createStateButton.connect("clicked", self.createState)
         self.createStateButton.set_sensitive(False)
-        leftFormTable.attach(self.createStateButton, 0, 2, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
+        leftFormTable.attach(self.createStateButton, 0, 2, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
 
         # The list of current states
         scroll_listStates = gtk.ScrolledWindow()
@@ -144,14 +152,14 @@ class UIGrammarInference:
         scroll_listStates.add(treeview_listStates)
         scroll_listStates.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         scroll_listStates.show()
-        leftFormTable.attach(scroll_listStates, 0, 2, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
+        leftFormTable.attach(scroll_listStates, 0, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
 
         # CREATE A TRANSITION
         self.createTransitionButton = gtk.Button("Create a transition")
         self.createTransitionButton.show()
         self.createTransitionButton.connect("clicked", self.createTransition)
         self.createTransitionButton.set_sensitive(False)
-        leftFormTable.attach(self.createTransitionButton, 0, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
+        leftFormTable.attach(self.createTransitionButton, 0, 2, 4, 5, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
 
         # The list of current transitions
         scroll_listTransitions = gtk.ScrolledWindow()
@@ -186,7 +194,7 @@ class UIGrammarInference:
         scroll_listTransitions.add(treeview_listTransitions)
         scroll_listTransitions.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         scroll_listTransitions.show()
-        leftFormTable.attach(scroll_listTransitions, 0, 2, 4, 5, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
+        leftFormTable.attach(scroll_listTransitions, 0, 2, 5, 7, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
 
         leftFormTable.show()
         self.mainPanel.pack_start(leftFormTable, False, False, 0)
@@ -256,7 +264,7 @@ class UIGrammarInference:
         transitionStartStateCombo.pack_start(transitionStartStateCell, True)
         transitionStartStateCombo.add_attribute(transitionStartStateCell, 'text', 0)
 
-        for state in self.getGrammar().getStates():
+        for state in self.getAutomata().getStates():
             transitionStartStateCombo.get_model().append([state.getName(), str(state.getID())])
         transitionStartStateCombo.show()
         mainTable.attach(transitionStartStateLabel, 0, 1, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
@@ -270,7 +278,7 @@ class UIGrammarInference:
         transitionStopStateCombo.pack_start(transitionStopStateComboCell, True)
         transitionStopStateCombo.add_attribute(transitionStopStateComboCell, 'text', 0)
 
-        for state in self.getGrammar().getStates():
+        for state in self.getAutomata().getStates():
             transitionStopStateCombo.get_model().append([state.getName(), str(state.getID())])
         transitionStopStateCombo.show()
         mainTable.attach(transitionStopStateLabel, 0, 1, 4, 5, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
@@ -290,7 +298,7 @@ class UIGrammarInference:
         idStopState = transitionStopStateCombo.get_model()[transitionStopStateCombo.get_active()][1]
         startState = None
         stopState = None
-        for state in self.getGrammar().getStates():
+        for state in self.getAutomata().getStates():
             if str(state.getID()) == idStartState:
                 startState = state
             if str(state.getID()) == idStopState:
@@ -312,7 +320,7 @@ class UIGrammarInference:
             self.log.warn("Impossible to create the requested transition since the type is unknown")
 
         if createdTransition != None:
-            self.getGrammar().addTransition(createdTransition)
+            self.getAutomata().addTransition(createdTransition)
             self.updateListTransitions()
             self.updateXDot()
 
@@ -399,6 +407,8 @@ class UIGrammarInference:
 
         for symbol in symbols:
             inputSymbolCombo.get_model().append([symbol.getName(), str(symbol.getID())])
+        inputSymbolCombo.get_model().append(["EmptySymbol", EmptySymbol.TYPE])
+        inputSymbolCombo.get_model().append(["UnknownSymbol", UnknownSymbol.TYPE])
         inputSymbolCombo.show()
 
         mainTable.attach(inputSymbolLabel, 0, 1, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
@@ -416,12 +426,12 @@ class UIGrammarInference:
         outputSymbolComboCell = gtk.CellRendererText()
         outputSymbolCombo.pack_start(outputSymbolComboCell, True)
         outputSymbolCombo.add_attribute(outputSymbolComboCell, 'text', 1)
-        
-        
-        outputSymbolCombo.get_model().append(["EmptySymbol", "EmptySymbol", ""])
+
         for symbol in symbols:
             outputSymbolCombo.get_model().append([symbol.getType(), symbol.getName(), str(symbol.getID())])
         outputSymbolCombo.show()
+        outputSymbolCombo.get_model().append([EmptySymbol.TYPE, "EmptySymbol", ""])
+        outputSymbolCombo.get_model().append([UnknownSymbol.TYPE, "UnknownSymbol", ""])
 
         mainTable.attach(outputSymbolLabel, 0, 1, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(outputSymbolCombo, 1, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
@@ -491,39 +501,47 @@ class UIGrammarInference:
         if result != gtk.RESPONSE_OK:
             dialog.destroy()
             return None
-        
-        inputEntryID = inputSymbolCombo.get_model()[inputSymbolCombo.get_active()][1]
-        inputEntry = None
-        for symbol in symbols:
-            if str(symbol.getID()) == inputEntryID:
-                inputEntry = symbol
 
-        if inputEntry == None:
-            self.log.warn("Impossible to retrieve the selected input dictionary entry")
-            dialog.destroy()
-            return
-        inputSymbol = DictionarySymbol(inputEntry)
+        inputEntryID = inputSymbolCombo.get_model()[inputSymbolCombo.get_active()][1]
+        if inputEntryID == EmptySymbol.TYPE:
+            inputSymbol = EmptySymbol()
+        elif inputEntryID == UnknownSymbol.TYPE:
+            inputSymbol = UnknownSymbol()
+        else:
+            inputEntry = None
+            for symbol in symbols:
+                if str(symbol.getID()) == inputEntryID:
+                    inputEntry = symbol
+            if inputEntry == None:
+                self.log.warn("Impossible to retrieve the selected input dictionary entry")
+                dialog.destroy()
+                return
+            inputSymbol = DictionarySymbol(inputEntry)
 
         # retrieve the output symbols
         outputSymbols = []  # [[symbol, proba, time], ...]
         for outputData in outputSymbolsTreeStore:
             outputSymbolType = outputData[0]
-        
-            if outputSymbolType == EmptySymbol.TYPE : 
+
+            if outputSymbolType == EmptySymbol.TYPE:
                 outputSymbolTime = outputData[3]
                 outputSymbolProba = outputData[4]
                 outputSymbols.append([EmptySymbol(), int(outputSymbolProba), int(outputSymbolTime)])
-            else :
+            elif outputSymbolType == UnknownSymbol.TYPE:
+                outputSymbolTime = outputData[3]
+                outputSymbolProba = outputData[4]
+                outputSymbols.append([UnknownSymbol(), int(outputSymbolProba), int(outputSymbolTime)])
+            else:
                 outputSymbolID = outputData[1]
                 outputSymbolName = outputData[2]
                 outputSymbolTime = outputData[3]
                 outputSymbolProba = outputData[4]
-    
+
                 outputEntry = None
                 for symbol in symbols:
                     if str(symbol.getID()) == outputSymbolID:
                         outputEntry = symbol
-    
+
                 if outputEntry == None:
                     self.log.warn("Impossible to retrieve the selected output dictionary entry")
                     dialog.destroy()
@@ -540,11 +558,15 @@ class UIGrammarInference:
 
     def addSymbolToTheList(self, widget, entries, outputSymbolsTreeStore, outputSymbolCombo, outputTimeEntry, outputProbabilityEntry):
         entryType = outputSymbolCombo.get_model()[outputSymbolCombo.get_active()][0]
-        if entryType == EmptySymbol.TYPE :
+        if entryType == EmptySymbol.TYPE:
             entryTime = outputTimeEntry.get_text()
-            entryProba = outputProbabilityEntry.get_text()            
+            entryProba = outputProbabilityEntry.get_text()
             outputSymbolsTreeStore.append(None, [EmptySymbol.TYPE, "none", "EmptySymbol", entryTime, entryProba])
-        else :            
+        elif entryType == UnknownSymbol.TYPE:
+            entryTime = outputTimeEntry.get_text()
+            entryProba = outputProbabilityEntry.get_text()
+            outputSymbolsTreeStore.append(None, [UnknownSymbol.TYPE, "none", "UnknownSymbol", entryTime, entryProba])
+        else:
             entryID = outputSymbolCombo.get_model()[outputSymbolCombo.get_active()][2]
             entryTime = outputTimeEntry.get_text()
             entryProba = outputProbabilityEntry.get_text()
@@ -555,7 +577,7 @@ class UIGrammarInference:
             if selectedEntry == None:
                 self.log.warn("Impossible to retrieve the selected dictionary entry")
                 return
-    
+
             outputSymbolsTreeStore.append(None, [selectedEntry.getType(), selectedEntry.getID(), selectedEntry.getName(), entryTime, entryProba])
 
     #+-----------------------------------------------------------------------+
@@ -588,7 +610,7 @@ class UIGrammarInference:
         isItInitialStateLabel = gtk.Label("Is it the initial state : ")
         isItInitialStateLabel.show()
         isItInitialStateButton = gtk.CheckButton("")
-        if self.getGrammar() == None:
+        if self.getAutomata() == None:
             isItInitialStateButton.set_active(True)
             isItInitialStateButton.set_sensitive(False)
         else:
@@ -610,14 +632,14 @@ class UIGrammarInference:
                 self.log.info("Create a state " + stateName + " (" + stateID + ")")
                 state = NormalState(stateID, stateName)
 
-                if self.getGrammar() == None:
-                    grammar = Grammar("MMSTD", state)
-                    self.netzob.getCurrentProject().setGrammar(grammar)
+                if self.getAutomata() == None:
+                    automata = MMSTD(state, self.getVocabulary())
+                    self.netzob.getCurrentProject().getGrammar().setAutomata(automata)
                 else:
                     if isItInitialStateButton.get_active():
-                        self.getGrammar().setInitialState(state)
+                        self.getAutomata().setInitialState(state)
 
-                self.getGrammar().addState(state)
+                self.getAutomata().addState(state)
 
             dialog.destroy()
 
@@ -629,25 +651,25 @@ class UIGrammarInference:
 
     def updateListStates(self):
         self.treestore_listStates.clear()
-        if self.getGrammar() == None:
+        if self.getAutomata() == None:
             return
-        for state in self.getGrammar().getStates():
+        for state in self.getAutomata().getStates():
             self.treestore_listStates.append(None, [str(state.getID()), state.getName(), state.getType()])
 
     def updateListTransitions(self):
         self.treestore_listTransitions.clear()
-        if self.getGrammar() == None:
+        if self.getAutomata() == None:
             return
-        for transition in self.getGrammar().getTransitions():
+        for transition in self.getAutomata().getTransitions():
             startState = transition.getInputState().getName()
             endState = transition.getOutputState().getName()
             self.treestore_listTransitions.append(None, [str(transition.getID()), transition.getName(), startState, endState, transition.getType()])
 
     def updateXDot(self):
         # We retrieve the xdot from the grammar (if it exists)
-        if self.getGrammar() == None:
+        if self.getAutomata() == None:
             return
-        self.xdotWidget.drawAutomata(self.getGrammar())
+        self.xdotWidget.drawAutomata(self.getAutomata())
 
     def updateInterface(self):
         if self.netzob.getCurrentProject() == None:
@@ -656,6 +678,12 @@ class UIGrammarInference:
         else:
             self.createStateButton.set_sensitive(True)
             self.createTransitionButton.set_sensitive(True)
+
+    def showAbstractionPanel(self, button):
+        # Dedicated view to abstract current grammar
+        abstractionPanel = AutomaticGrammarAbstractionView(self.netzob.getCurrentProject())
+        abstractionPanel.display()
+        self.update()
 
     def showAutomaticInferencePanel(self, button):
         # Dedicated view for the inference process
@@ -676,7 +704,7 @@ class UIGrammarInference:
             path = info[0]
             iter = treeview.get_model().get_iter(path)
             idState = str(treeview.get_model().get_value(iter, 0))
-            for state in self.getGrammar().getStates():
+            for state in self.getAutomata().getStates():
                 if state.getID() == idState:
                     clickedState = state
 
@@ -696,7 +724,7 @@ class UIGrammarInference:
             path = info[0]
             iter = treeview.get_model().get_iter(path)
             idTransition = str(treeview.get_model().get_value(iter, 0))
-            for transition in self.getGrammar().getTransitions():
+            for transition in self.getAutomata().getTransitions():
                 if transition.getID() == idTransition:
                     clickedTransition = transition
 
@@ -748,7 +776,7 @@ class UIGrammarInference:
         result = md.run()
         md.destroy()
         if result == gtk.RESPONSE_YES:
-            self.getGrammar().removeTransition(transition)
+            self.getAutomata().removeTransition(transition)
             self.update()
         else:
             self.log.debug("The user didn't confirm the deletion of the transition " + transition.getName())
@@ -766,7 +794,7 @@ class UIGrammarInference:
         stateID = str(state.getID())
 
         mainTable = gtk.Table(rows=5, columns=2, homogeneous=False)
-        
+
         # ID of the state
         stateIDLabel = gtk.Label("ID :")
         stateIDLabel.show()
@@ -774,7 +802,7 @@ class UIGrammarInference:
         stateIDValueLabel.show()
         mainTable.attach(stateIDLabel, 0, 1, 0, 1, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(stateIDValueLabel, 1, 2, 0, 1, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         # Name of the state
         stateNameLabel = gtk.Label("Name :")
         stateNameLabel.show()
@@ -783,15 +811,15 @@ class UIGrammarInference:
         stateNameEntry.show()
         mainTable.attach(stateNameLabel, 0, 1, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(stateNameEntry, 1, 2, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         # Memopex labels
         memOpexButton = gtk.Button("Add a MemOpex")
         memOpexButton.connect("clicked", self.showCreationOfMemOpex, state)
         memOpexButton.show()
         memOpexButton.set_sensitive(True)
         mainTable.attach(memOpexButton, 0, 2, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
-        # List of memopex        
+
+        # List of memopex
         scroll_listOfMemOpex = gtk.ScrolledWindow()
         treestore_listOfMemOpex = gtk.TreeStore(str, str, str)  # id, transition id, type
         treeview_listOfMemOpex = gtk.TreeView(treestore_listOfMemOpex)
@@ -809,16 +837,16 @@ class UIGrammarInference:
         column_listOfMemOpex_type.set_attributes(cell, text=2)
         treeview_listOfMemOpex.append_column(column_listOfMemOpex_type)
         treeview_listOfMemOpex.show()
-        
+
         # Register all the memopex of the current state
-        for memOpex in state.getMemOpexs() :
+        for memOpex in state.getMemOpexs():
             treestore_listOfMemOpex.append(None, [str(memOpex.getID()), str(memOpex.getTransitionID()), memOpex.getType()])
-        
+
         scroll_listOfMemOpex.add(treeview_listOfMemOpex)
         scroll_listOfMemOpex.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         scroll_listOfMemOpex.show()
         mainTable.attach(scroll_listOfMemOpex, 0, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         dialog.vbox.pack_end(mainTable, True, True, 0)
         dialog.show_all()
         result = dialog.run()
@@ -830,17 +858,17 @@ class UIGrammarInference:
         dialog.destroy()
 
         self.update()
-        
+
     def showCreationOfMemOpex(self, event, state):
         self.log.debug("Opening the dialog for the creation of MemOpex of a state")
         dialog = gtk.MessageDialog(None, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_QUESTION, gtk.BUTTONS_OK, None)
         dialog.set_markup('Creation of a MemOpex')
 
-        # MemOpex id 
+        # MemOpex id
         memOpexId = uuid.uuid4()
 
         mainTable = gtk.Table(rows=5, columns=2, homogeneous=False)
-        
+
         # ID of the memopex
         memopexIDLabel = gtk.Label("ID :")
         memopexIDLabel.show()
@@ -848,66 +876,63 @@ class UIGrammarInference:
         memopexIDValueLabel.show()
         mainTable.attach(memopexIDLabel, 0, 1, 0, 1, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(memopexIDValueLabel, 1, 2, 0, 1, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         # Transition
         memopexTransitionLabel = gtk.Label("Transition :")
         memopexTransitionLabel.show()
-        
+
         transitionTypeCombo = gtk.ComboBox()
-        transitionTypeCombo.set_model(gtk.ListStore(str, str)) # id, transition name
+        transitionTypeCombo.set_model(gtk.ListStore(str, str))  # id, transition name
         transitionTypeComboCell = gtk.CellRendererText()
         transitionTypeCombo.pack_start(transitionTypeComboCell, True)
         transitionTypeCombo.add_attribute(transitionTypeComboCell, 'text', 1)
-        
-        for possibleTransition in self.getGrammar().getTransitionsLeadingToState(state) :
+
+        for possibleTransition in self.getAutomata().getTransitionsLeadingToState(state):
             transitionTypeCombo.get_model().append([str(possibleTransition.getID()), possibleTransition.getName()])
         transitionTypeCombo.show()
         mainTable.attach(memopexTransitionLabel, 0, 1, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(transitionTypeCombo, 1, 2, 1, 2, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         # Operations
         memopexOperationLabel = gtk.Label("Operation :")
         memopexOperationLabel.show()
-        
+
         operationCombo = gtk.ComboBox()
-        operationCombo.set_model(gtk.ListStore(str)) # type
+        operationCombo.set_model(gtk.ListStore(str))  # type
         operationComboCell = gtk.CellRendererText()
         operationCombo.pack_start(operationComboCell, True)
         operationCombo.add_attribute(operationComboCell, 'text', 0)
-        
+
         operationCombo.get_model().append(["FORGET"])
         operationCombo.show()
         mainTable.attach(memopexOperationLabel, 0, 1, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(operationCombo, 1, 2, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
+
         # Variable
         variableLabel = gtk.Label("Variable :")
         variableLabel.show()
-        
+
         variableCombo = gtk.ComboBox()
-        variableCombo.set_model(gtk.ListStore(str, str)) # id, name
+        variableCombo.set_model(gtk.ListStore(str, str))  # id, name
         variableComboCell = gtk.CellRendererText()
         variableCombo.pack_start(variableComboCell, True)
         variableCombo.add_attribute(operationComboCell, 'text', 1)
-        
-        for variable in self.getVocabulary().getVariables() :
+
+        for variable in self.getVocabulary().getVariables():
             variableCombo.get_model().append([str(variable.getID()), variable.getUncontextualizedDescription()])
-            
-        
-        
+
         variableCombo.show()
         mainTable.attach(variableLabel, 0, 1, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
         mainTable.attach(variableCombo, 1, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-        
-        
+
 #        # Memopex labels
 #        memOpexButton = gtk.Button("Add a MemOpex")
 #        memOpexButton.connect("clicked", self.showCreationOfMemOpex, state)
 #        memOpexButton.show()
 #        memOpexButton.set_sensitive(True)
 #        mainTable.attach(memOpexButton, 0, 2, 2, 3, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-#        
-#        # List of memopex        
+#
+#        # List of memopex
 #        scroll_listOfMemOpex = gtk.ScrolledWindow()
 #        treestore_listOfMemOpex = gtk.TreeStore(str, str, str)  # id, transition id, type
 #        treeview_listOfMemOpex = gtk.TreeView(treestore_listOfMemOpex)
@@ -925,16 +950,16 @@ class UIGrammarInference:
 #        column_listOfMemOpex_type.set_attributes(cell, text=2)
 #        treeview_listOfMemOpex.append_column(column_listOfMemOpex_type)
 #        treeview_listOfMemOpex.show()
-#        
+#
 #        # Register all the memopex of the current state
 #        for memOpex in state.getMemOpexs() :
 #            treestore_listOfMemOpex.append(None, [str(memOpex.getID()), str(memOpex.getTransitionID()), memOpex.getType()])
-#        
+#
 #        scroll_listOfMemOpex.add(treeview_listOfMemOpex)
 #        scroll_listOfMemOpex.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
 #        scroll_listOfMemOpex.show()
 #        mainTable.attach(scroll_listOfMemOpex, 0, 2, 3, 4, xoptions=gtk.FILL, yoptions=0, xpadding=5, ypadding=5)
-#        
+#
         dialog.vbox.pack_end(mainTable, True, True, 0)
         dialog.show_all()
         result = dialog.run()
@@ -961,7 +986,7 @@ class UIGrammarInference:
         result = md.run()
         md.destroy()
         if result == gtk.RESPONSE_YES:
-            self.getGrammar().removeState(state)
+            self.getAutomata().removeState(state)
             self.update()
         else:
             self.log.debug("The user didn't confirm the deletion of the state " + state.getName())
@@ -971,6 +996,12 @@ class UIGrammarInference:
             return None
         else:
             return self.netzob.getCurrentProject().getGrammar()
+
+    def getAutomata(self):
+        grammar = self.getGrammar()
+        if grammar == None:
+            return None
+        return grammar.getAutomata()
 
     def getVocabulary(self):
         if self.netzob.getCurrentProject() == None:

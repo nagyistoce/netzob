@@ -50,11 +50,12 @@ from netzob.Common.MMSTD.Dictionary.Memory import Memory
 #+----------------------------------------------
 class NetworkOracle(threading.Thread):
 
-    def __init__(self, communicationChannel):
+    def __init__(self, communicationChannel, isMaster):
         threading.Thread.__init__(self)
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Inference.Grammar.Oracle.NetworkOracle.py')
         self.communicationChannel = communicationChannel
+        self.isMaster = isMaster
 
     def setMMSTD(self, mmstd):
         self.mmstd = mmstd
@@ -62,11 +63,14 @@ class NetworkOracle(threading.Thread):
     def run(self):
         self.log.info("Start the network oracle based on given MMSTD")
 
+        # Create a new and clean memory
+        memory = Memory(self.mmstd.getVocabulary().getVariables())
+        memory.createMemory()
         # Create the abstraction layer for this connection
-        abstractionLayer = AbstractionLayer(self.communicationChannel, self.mmstd.getDictionary(), Memory(self.mmstd.getDictionary().getVariables()))
+        abstractionLayer = AbstractionLayer(self.communicationChannel, self.mmstd.getVocabulary(), memory)
 
         # And we create an MMSTD visitor for this
-        self.oracle = MMSTDVisitor("MMSTD-NetworkOracle", self.mmstd, True, abstractionLayer)
+        self.oracle = MMSTDVisitor("MMSTD-NetworkOracle", self.mmstd, self.isMaster, abstractionLayer)
         self.oracle.start()
 
         while (self.oracle.isAlive()):
@@ -81,6 +85,13 @@ class NetworkOracle(threading.Thread):
     def hasFinish(self):
         return not self.oracle.isActive()
 
+    def getGeneratedInputSymbols(self):
+        symbols = []
+        abstractionLayer = self.oracle.getAbstractionLayer()
+        for i in abstractionLayer.getGeneratedInputSymbols():
+            symbols.append(DictionarySymbol(i))
+        return symbols
+
     def getGeneratedOutputSymbols(self):
         symbols = []
         abstractionLayer = self.oracle.getAbstractionLayer()
@@ -92,6 +103,7 @@ class NetworkOracle(threading.Thread):
         symbols = []
         # Retrieve all the IO from the abstraction layer
         abstractionLayer = self.oracle.getAbstractionLayer()
+        print "Abstraction layer = " + str(abstractionLayer)
         for io in abstractionLayer.getGeneratedInputAndOutputsSymbols():
             symbols.append(DictionarySymbol(io))
         return symbols

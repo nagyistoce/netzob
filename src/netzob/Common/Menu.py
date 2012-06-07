@@ -32,22 +32,31 @@
 import gtk
 import logging
 import os
+from lxml.etree import ElementTree
+import uuid
+import shutil
 
 #+---------------------------------------------------------------------------+
 #| Local imports
 #+---------------------------------------------------------------------------+
 from netzob.Common.Project import Project
 from netzob.Common.ProjectConfiguration import ProjectConfiguration
+from netzob.Common.SessionManager import SessionManager
 from netzob.Import.NetworkImport import NetworkImport
 from netzob.Import.PcapImport import PcapImport
-from netzob.Import.IpcImport import IpcImport
+from netzob.Import.ThirdPartyImport import ThirdPartyImport
+if os.name == 'posix':
+    from netzob.Import.IpcImport import IpcImport
 from netzob.Import.FileImport import FileImport
+from netzob.Import.XMLImport import XMLImport
 from netzob.Export.ScapyExport import ScapyExport
 from netzob.Export.RawExport import RawExport
 from netzob.Export.TextExport import TextExport
 from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
 from netzob.UI.TraceManager import TraceManager
+from netzob.UI.NetzobWidgets import NetzobInfoMessage, NetzobErrorMessage
 from netzob import release
+
 
 #+---------------------------------------------------------------------------+
 #| Menu:
@@ -105,6 +114,11 @@ class Menu(object):
         self.saveProject.connect("activate", self.saveProjectAction)
         self.menuProject.append(self.saveProject)
 
+        self.sessionManager = gtk.MenuItem("Session manager")
+        self.sessionManager.connect("activate", self.sessionManagerAction)
+        # TODO
+        # self.menuProject.append(self.sessionManager)
+
         self.menuImport = gtk.Menu()
         self.importRootMenu = gtk.MenuItem("Import traces")
         self.importRootMenu.set_submenu(self.menuImport)
@@ -124,6 +138,14 @@ class Menu(object):
         importFileEntry = gtk.MenuItem("Import from File")
         importFileEntry.connect("activate", self.importFileAction)
         self.menuImport.append(importFileEntry)
+
+        importXMLEntry = gtk.MenuItem("Import from XML File")
+        importXMLEntry.connect("activate", self.importXMLAction)
+        self.menuImport.append(importXMLEntry)
+
+        importThirdPartyEntry = gtk.MenuItem("Import from Third parties")
+        importThirdPartyEntry.connect("activate", self.importThirdParty)
+        self.menuImport.append(importThirdPartyEntry)
 
         self.menuProject.append(self.importRootMenu)
 
@@ -155,23 +177,28 @@ class Menu(object):
         if self.netzob.getCurrentProject() == None:
             # Deactivate almost everything
             self.saveProject.set_sensitive(False)
+            self.sessionManager.set_sensitive(False)
             self.importRootMenu.set_sensitive(False)
             self.exportRootMenu.set_sensitive(False)
             self.helpContent.set_sensitive(False)
         else:
             # Activate everything
             self.saveProject.set_sensitive(True)
+            self.sessionManager.set_sensitive(True)
             self.importRootMenu.set_sensitive(True)
             self.exportRootMenu.set_sensitive(True)
             self.displaySymbolStructure.set_sensitive(True)
             self.displayMessages.set_sensitive(True)
-            self.displayConsole.set_sensitive(False)
+            self.displaySearchView.set_sensitive(True)
+            self.displayPropertiesView.set_sensitive(True)
             isActive = self.netzob.getCurrentProject().getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_SYMBOL_STRUCTURE)
             self.displaySymbolStructure.set_active(isActive)
             isActive = self.netzob.getCurrentProject().getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_MESSAGES)
             self.displayMessages.set_active(isActive)
-            isActive = self.netzob.getCurrentProject().getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_CONSOLE)
-            self.displayConsole.set_active(isActive)
+            isActive = self.netzob.getCurrentProject().getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_SEARCH)
+            self.displaySearchView.set_active(isActive)
+            isActive = self.netzob.getCurrentProject().getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_PROPERTIES)
+            self.displayPropertiesView.set_active(isActive)
 
     def createViewMenu(self):
         self.menuView = gtk.Menu()
@@ -189,10 +216,15 @@ class Menu(object):
         self.menuView.append(self.displayMessages)
         self.displayMessages.set_sensitive(False)
 
-        self.displayConsole = gtk.CheckMenuItem("Display console")
-        self.displayConsole.connect("activate", self.displayConsoleAction)
-        self.menuView.append(self.displayConsole)
-        self.displayConsole.set_sensitive(False)
+        self.displaySearchView = gtk.CheckMenuItem("Display search results")
+        self.displaySearchView.connect("activate", self.displaySearchAction)
+        self.menuView.append(self.displaySearchView)
+        self.displaySearchView.set_sensitive(False)
+
+        self.displayPropertiesView = gtk.CheckMenuItem("Display properties")
+        self.displayPropertiesView.connect("activate", self.displayPropertiesAction)
+        self.menuView.append(self.displayPropertiesView)
+        self.displayPropertiesView.set_sensitive(False)
 
         self.menuBar.append(menuRootView)
 
@@ -211,9 +243,17 @@ class Menu(object):
         self.menuWorkspace.append(self.createProject)
 
         self.selectAProject = gtk.Menu()
-        selectAProjectRoot = gtk.MenuItem("Switch project")
-        selectAProjectRoot.set_submenu(self.selectAProject)
-        self.menuWorkspace.append(selectAProjectRoot)
+        self.selectAProjectRoot = gtk.MenuItem("Switch project")
+        self.selectAProjectRoot.set_submenu(self.selectAProject)
+        self.menuWorkspace.append(self.selectAProjectRoot)
+
+        self.importProject = gtk.MenuItem("Import a project")
+        self.importProject.connect("activate", self.importProjectAction)
+        self.menuWorkspace.append(self.importProject)
+
+        self.exportProject = gtk.MenuItem("Export a project")
+        self.exportProject.connect("activate", self.exportProjectAction)
+        self.menuWorkspace.append(self.exportProject)
 
         self.manageProject = gtk.MenuItem("Manage projects")
         self.menuWorkspace.append(self.manageProject)
@@ -238,20 +278,33 @@ class Menu(object):
 
     def updateWorkspaceMenu(self):
         self.createProject.set_sensitive(True)
+        self.importProject.set_sensitive(True)
         self.manageTraces.set_sensitive(True)
         self.manageProject.set_sensitive(False)
         self.options.set_sensitive(False)
         self.switchWorkspace.set_sensitive(False)
         self.exit.set_sensitive(True)
+        if self.netzob.getCurrentProject() == None:
+            self.exportProject.set_sensitive(False)
+        else:
+            self.exportProject.set_sensitive(True)
 
         # Update the list of project
         for i in self.selectAProject.get_children():
             self.selectAProject.remove(i)
-        for project in self.netzob.getCurrentWorkspace().getProjects():
-            projectEntry = gtk.MenuItem(project.getName())
-            projectEntry.connect("activate", self.switchProjectAction, project)
+
+        availableProjectsName = self.netzob.getCurrentWorkspace().getNameOfProjects()
+        for (projectName, projectFile) in availableProjectsName:
+            projectEntry = gtk.MenuItem(projectName)
+            projectEntry.connect("activate", self.switchProjectAction, projectFile)
             self.selectAProject.append(projectEntry)
         self.selectAProject.show_all()
+
+        # Deactivate the global 'switch menu' if no project is available
+        if len(availableProjectsName) == 0:
+            self.selectAProjectRoot.set_sensitive(False)
+        else:
+            self.selectAProjectRoot.set_sensitive(True)
 
     def update(self):
         self.updateWorkspaceMenu()
@@ -263,15 +316,91 @@ class Menu(object):
     def exitAction(self, widget):
         self.netzob.destroy(widget)
 
+    def setDisplaySearchViewActiveStatus(self, status):
+        self.displaySearchView.set_active(status)
+
     #+----------------------------------------------
     #| Called when user wants to manage the traces
     #+----------------------------------------------
     def manageTracesAction(self, widget):
         TraceManager(self.netzob.getCurrentWorkspace(), self.netzob.update)
 
-    def switchProjectAction(self, widget, newProject):
+    def switchProjectAction(self, widget, projectPath):
+        newProject = Project.loadProject(self.netzob.getCurrentWorkspace(), projectPath)
+        if newProject == None:
+            logging.error("Impossible to switch to requested project due to an error in the loading process.")
+            return
+
+        # Loading the project based on its name
         self.netzob.switchCurrentProject(newProject)
         self.update()
+
+    #+----------------------------------------------
+    #| Called when user wants to export a project
+    #+----------------------------------------------
+    def importProjectAction(self, widget):
+        chooser = gtk.FileChooserDialog(title="Export as", action=gtk.FILE_CHOOSER_ACTION_OPEN,
+                                        buttons=(gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+        res = chooser.run()
+        if res == gtk.RESPONSE_OK:
+            fileName = chooser.get_filename()
+        chooser.destroy()
+
+        if os.path.isfile(fileName):
+            idProject = str(uuid.uuid4())
+            # First we verify and create if necessary the directory of the project
+            projectPath = "projects/" + idProject + "/"
+            destPath = os.path.join(os.path.join(self.netzob.getCurrentWorkspace().getPath(), projectPath))
+            if not os.path.exists(destPath):
+                logging.info("Creation of the directory " + destPath)
+                os.mkdir(destPath)
+            # Retrieving and storing of the config file
+            try:
+                destFile = os.path.join(destPath, Project.CONFIGURATION_FILENAME)
+                shutil.copy(fileName, destFile)
+            except IOError, e:
+                logging.warn("Error when importing project: " + str(e))
+                return None
+
+            project = Project.loadProject(self.netzob.getCurrentWorkspace(), destPath)
+            project.setID(idProject)
+            project.setName("Copy of " + project.getName())
+            project.setPath(projectPath)
+            project.saveConfigFile(self.netzob.getCurrentWorkspace())
+            self.netzob.getCurrentWorkspace().referenceProject(project.getPath())
+            self.netzob.getCurrentWorkspace().saveConfigFile()
+            NetzobInfoMessage("Project '" + project.getName() + "' correctly imported")
+            self.update()
+
+    #+----------------------------------------------
+    #| Called when user wants to export a project
+    #+----------------------------------------------
+    def exportProjectAction(self, widget):
+        chooser = gtk.FileChooserDialog(title="Export as (XML)", action=gtk.FILE_CHOOSER_ACTION_SAVE,
+                                        buttons=(gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+        res = chooser.run()
+        if res == gtk.RESPONSE_OK:
+            fileName = chooser.get_filename()
+        chooser.destroy()
+
+        doCreateFile = False
+        isFile = os.path.isfile(fileName)
+        if not isFile:
+            doCreateFile = True
+        else:
+            md = gtk.MessageDialog(None,
+                                   gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_QUESTION,
+                                   gtk.BUTTONS_OK_CANCEL, "Are you sure to override the file '" + fileName + "' ?")
+            resp = md.run()
+            md.destroy()
+            if resp == gtk.RESPONSE_OK:
+                doCreateFile = True
+
+        if doCreateFile:
+            root = self.netzob.getCurrentProject().generateXMLConfigFile()
+            tree = ElementTree(root)
+            tree.write(fileName)
+            NetzobInfoMessage("Project correctly exported to '" + fileName + "'")
 
     #+----------------------------------------------
     #| Called when user wants to import network trafic
@@ -296,6 +425,18 @@ class Menu(object):
     #+----------------------------------------------
     def importFileAction(self, widget):
         fileImportPanel = FileImport(self.netzob)
+
+    #+----------------------------------------------
+    #| Called when user wants to import file
+    #+----------------------------------------------
+    def importXMLAction(self, widget):
+        xmlImportPanel = XMLImport(self.netzob)
+
+    #+----------------------------------------------
+    #| Called when user wants to import from third parties
+    #+----------------------------------------------
+    def importThirdParty(self, widget):
+        thirdPartyImportPanel = ThirdPartyImport(self.netzob)
 
     #+----------------------------------------------
     #| Called when user wants to export as Scapy dissector
@@ -353,12 +494,31 @@ class Menu(object):
             self.netzob.getCurrentProject().getConfiguration().setVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_CONSOLE, self.displayConsole.get_active())
         self.netzob.updateCurrentPanel()
 
+    #+----------------------------------------------
+    #| Called when user wants to display search results panel
+    #+----------------------------------------------
+    def displaySearchAction(self, widget):
+        if self.netzob.getCurrentProject() != None:
+            self.netzob.getCurrentProject().getConfiguration().setVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_SEARCH, self.displaySearchView.get_active())
+        self.netzob.updateCurrentPanel()
+
+    #+----------------------------------------------
+    #| Called when user wants to display properties results panel
+    #+----------------------------------------------
+    def displayPropertiesAction(self, widget):
+        if self.netzob.getCurrentProject() != None:
+            self.netzob.getCurrentProject().getConfiguration().setVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DISPLAY_PROPERTIES, self.displayPropertiesView.get_active())
+        self.netzob.updateCurrentPanel()
+
     def aboutDialogAction(self, widget):
         about = gtk.AboutDialog()
         about.set_program_name(release.appname)
         about.set_version(release.version)
         about.set_copyright(release.copyright)
-        about.set_comments(release.description)
+        if release.versionName != None:
+            about.set_comments("--{0}--\n{1}".format(release.versionName, release.description))
+        else:
+            about.set_comments(release.description)
         about.set_website(release.url)
         logoPath = os.path.join(ResourcesConfiguration.getStaticResources(), "logo.png")
         about.set_logo(gtk.gdk.pixbuf_new_from_file(logoPath))
@@ -372,6 +532,10 @@ class Menu(object):
         logging.info("Starting the saving of the current project : " + str(self.netzob.getCurrentProject().getName()))
         self.netzob.getCurrentProject().saveConfigFile(self.netzob.getCurrentWorkspace())
 
+    def sessionManagerAction(self, widget):
+        logging.info("Starting the session manager")
+        sessionManagerPanel = SessionManager(self.netzob)
+
     def createProjectAction(self, widget):
         dialog = gtk.Dialog(title="Create a new project", flags=0, buttons=None)
         dialog.show()
@@ -380,20 +544,31 @@ class Menu(object):
         label = gtk.Label("New project name")
         label.show()
         entry = gtk.Entry()
-        entry.show()
         but = gtk.Button("Create project")
         but.connect("clicked", self.createProjectAction_cb, entry, dialog)
+        but.set_flags(gtk.CAN_DEFAULT)
         but.show()
         table.attach(label, 0, 1, 0, 1, xoptions=0, yoptions=0, xpadding=5, ypadding=5)
         table.attach(entry, 1, 2, 0, 1, xoptions=0, yoptions=0, xpadding=5, ypadding=5)
         table.attach(but, 2, 3, 0, 1, xoptions=0, yoptions=0, xpadding=5, ypadding=5)
+        dialog.set_default(but)
         dialog.action_area.pack_start(table, True, True, 0)
+        # Grab focus must be called after adding the widget to the top level element
+        entry.set_flags(gtk.CAN_FOCUS)
+        entry.show()
+        entry.grab_focus()
 
     #+----------------------------------------------
     #| Creation of a new project from
     #+----------------------------------------------
     def createProjectAction_cb(self, button, entry, dialog):
         projectName = entry.get_text()
+
+        # we verify a name has been provided
+        if projectName == None or projectName == "":
+            logging.warn("Impossible to create a project with an empty name.")
+            errorDialog = NetzobErrorMessage("Impossible to create a project with an empty name.")
+            return
 
         # We verify the project name doesn't already exist
         found = False

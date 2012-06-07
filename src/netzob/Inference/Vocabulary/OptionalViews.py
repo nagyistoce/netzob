@@ -25,12 +25,53 @@
 #|             Supélec, http://www.rennes.supelec.fr/ren/rd/cidre/           |
 #+---------------------------------------------------------------------------+
 
-#+---------------------------------------------------------------------------+ 
-#| Establishes the path for static resources
 #+---------------------------------------------------------------------------+
-STATIC_DIR = "$STATIC_DIR"
+#| Global Imports
+#+---------------------------------------------------------------------------+
+import logging
+import gtk
+import pygtk
+import uuid
+pygtk.require('2.0')
 
-#+---------------------------------------------------------------------------+ 
-#| Establishes the path for workspace resources (only used by testing)
 #+---------------------------------------------------------------------------+
-WORKSPACE_DIR = None
+#| Local Imports
+#+---------------------------------------------------------------------------+
+from netzob.Inference.Vocabulary.Searcher import Searcher
+from netzob.Common.Type.Format import Format
+
+
+#+---------------------------------------------------------------------------+
+#| OptionalViews:
+#|     Class dedicated to host the notebook of optional views
+#+---------------------------------------------------------------------------+
+class OptionalViews(object):
+
+    #+-----------------------------------------------------------------------+
+    #| Constructor:
+    #+-----------------------------------------------------------------------+
+    def __init__(self):
+        # create logger with the given configuration
+        self.log = logging.getLogger('netzob.Inference.Vocabulary.OptionalViews.py')
+        self.notebook = gtk.Notebook()
+        self.views = []
+
+    def registerView(self, view):
+        self.views.append(view)
+
+    def getPanel(self):
+        self.notebook.set_tab_pos(gtk.POS_TOP)
+
+        for view in self.views:
+            viewLabel = gtk.Label(view.getName())
+            self.notebook.prepend_page(view.getWidget(), viewLabel)
+        self.notebook.show_all()
+        return self.notebook
+
+    def update(self):
+        isActive = False
+        for view in self.views:
+            if view.isActive():
+                self.notebook.show()
+                return
+        self.notebook.hide()

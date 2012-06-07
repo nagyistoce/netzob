@@ -80,10 +80,13 @@
 			</element>
 			<element name="display_messages" type="boolean" minOccurs="0">
 			</element>
-			<element name="display_symbol_structure" type="boolean"
-				minOccurs="0">
+			<element name="display_symbol_structure" type="boolean" minOccurs="0">
 			</element>
 			<element name="display_console" type="boolean" minOccurs="0">
+			</element>
+			<element name="display_search" type="boolean" minOccurs="0">
+			</element>
+			<element name="display_properties" type="boolean" minOccurs="0">
 			</element>
 			<element name="global_format" minOccurs="0">
 				<simpleType>
@@ -210,30 +213,18 @@
 
 	<complexType name="Vocabulary">
 		<sequence>
+			<element name="messages" type="netzob-common:Messages"></element>
 			<element name="symbols" type="netzob-project:Symbols"></element>
+			<element name="sessions" type="netzob-common:Sessions"></element>
 		</sequence>
 	</complexType>
+	
 
 	<complexType name="Grammar">
 		<sequence>
-			<element name="states" type="netzob-project:States"></element>
-			<element name="transitions" type="netzob-project:Transitions"
-				minOccurs="0"></element>
+			<element name="automata" type="netzob-project:MMSTD" minOccurs="0"></element>
+			<element name="sequences" type="netzob-project:Sequences" minOccurs="0"></element>
 		</sequence>
-		<attribute name="type" use="required">
-			<simpleType>
-				<restriction base="string">
-					<enumeration value="MMSTD"></enumeration>
-				</restriction>
-			</simpleType>
-		</attribute>
-		<attribute name="initialState" use="required">
-			<simpleType>
-				<restriction base="string">
-					<minLength value="1"></minLength>
-				</restriction>
-			</simpleType>
-		</attribute>
 	</complexType>
 
 	<complexType name="Symbols">
@@ -245,7 +236,13 @@
 
 	<complexType name="Symbol">
 		<sequence>
-			<element name="messages" type="netzob-common:Messages"
+			<element name="format" type="string" maxOccurs="1" minOccurs="0"></element>
+			<element name="unitsize" type="string" maxOccurs="1"
+				 minOccurs="0"></element>
+			<element name="sign" type="string" maxOccurs="1" minOccurs="0"></element>
+			<element name="endianess" type="string" maxOccurs="1"
+				 minOccurs="0"></element>
+			<element name="messages-ref" type="netzob-common:Messages-ref"
 				minOccurs="0">
 			</element>
 			<element name="fields" type="netzob-project:Fields"
@@ -270,10 +267,6 @@
 		<attribute name="alignmentType" type="string"></attribute>
 		<attribute name="rawDelimiter" type="string"></attribute>
 	</complexType>
-
-
-
-
 
 	<complexType name="Fields">
 		<sequence>
@@ -656,7 +649,20 @@
 				<sequence>
 					<element name="originalValue" type="string" minOccurs="0"
 						maxOccurs="1"></element>
-					<element name="regex" type="string" minOccurs="1"
+					<element name="regex" type="string" minOccurs="0"
+						maxOccurs="1"></element>
+				</sequence>
+			</extension>
+		</complexContent>
+	</complexType>
+	
+	<complexType name="DecimalWordVariable">
+		<complexContent>
+			<extension base="netzob-project:Variable">
+				<sequence>
+					<element name="originalValue" type="string" minOccurs="0"
+						maxOccurs="1"></element>
+					<element name="regex" type="string" minOccurs="0"
 						maxOccurs="1"></element>
 				</sequence>
 			</extension>
@@ -696,4 +702,68 @@
 	<element name="project" type="netzob-project:Project"></element>
 
 
+
+	<complexType name="Sequences">
+		<sequence>
+			<element name="sequence" type="netzob-project:Sequence" minOccurs="0" maxOccurs="unbounded"></element>
+		</sequence>
+	</complexType>
+
+	<complexType name="Sequence">
+		<sequence>
+			<element name="order" type="netzob-project:Order" maxOccurs="unbounded"></element>
+		</sequence>
+		<attribute name="id" use="required">
+			<simpleType>
+				<restriction base="string">
+					<minLength value="1"></minLength>
+				</restriction>
+			</simpleType>
+		</attribute>
+		<attribute name="name" use="required">
+			<simpleType>
+				<restriction base="string">
+					<minLength value="1"></minLength>
+				</restriction>
+			</simpleType>
+		</attribute>
+		<attribute name="description" type="string"></attribute>
+	</complexType>
+
+	<complexType name="Order">
+		<sequence>
+			<element name="msg-ref" maxOccurs="unbounded"
+				minOccurs="0">
+				<simpleType>
+					<restriction base="string">
+						<minLength value="1"></minLength>
+					</restriction>
+				</simpleType>
+			</element>
+		</sequence>
+		<attribute name="value" type="int" use="required"></attribute>
+	</complexType>
+
+    <complexType name="MMSTD">
+    	<sequence>
+			<element name="states" type="netzob-project:States"></element>
+			<element name="transitions"
+				type="netzob-project:Transitions" minOccurs="0">
+			</element>
+		</sequence>
+		<attribute name="type" use="required">
+			<simpleType>
+				<restriction base="string">
+					<enumeration value="mmstd"></enumeration>
+				</restriction>
+			</simpleType>
+		</attribute>
+		<attribute name="initialState" use="required">
+			<simpleType>
+				<restriction base="string">
+					<minLength value="1"></minLength>
+				</restriction>
+			</simpleType>
+		</attribute>
+    </complexType>
 </schema>

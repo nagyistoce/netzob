@@ -36,14 +36,14 @@ name = "Netzob"
 appname = name
 
 #+---------------------------------------------------------------------------+
-#| Current OFFICIAL version of the application 
-
+#| Current OFFICIAL version of the application
 #|    the version number must be changed during the last commit before
 #|    the tag release.
 #|    Development version has version number increased and is
 #|    postfixed by ~git
 #+---------------------------------------------------------------------------+
-version = "0.3.2"
+version = "0.3.3"
+versionName = "FlyingRazorback"
 
 #+---------------------------------------------------------------------------+
 #| Copyright mentions

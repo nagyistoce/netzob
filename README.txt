@@ -40,6 +40,8 @@ Dependencies :
 * python-dev
 * libjs-sphinxdoc
 * python-sphinx
+* python-setuptools
+* graphviz
 
 Linux-specific dependencies :
 
@@ -50,7 +52,7 @@ Or, on Debian-like operating systems :
 
 $ sudo apt-get install python python-ptrace python-matplotlib strace lsof \
   python-pcapy python-bitarray python-dev python-lxml libjs-sphinxdoc     \
-  python-sphinx
+  python-sphinx python-setuptools graphviz
 
 And then, 
 
@@ -87,11 +89,9 @@ $ sphinx-build -b html doc/documentation/source/ doc/documentation/build/
 
 ** Requirements for Network and PCAP input **
 
-Dependencies : tcpdump
 Configuration : 
 
 $ sudo setcap cap_net_raw=ep /usr/bin/python2.XX
-$ sudo setcap cap_net_raw=ep /usr/sbin/tcpdump
 
 ** Requirements for IPC input on Ubuntu **
 

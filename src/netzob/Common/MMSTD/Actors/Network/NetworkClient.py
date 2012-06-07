@@ -83,21 +83,17 @@ class NetworkClient(AbstractActor):
     def close(self):
         self.log.debug("Closing the network client")
         self.stop()
-#        try:
-#            self.socket.shutdown()
-#        except socket.error, msg:
-#            self.log.debug("Error appeared while shuting down the socket." + str(msg))
-        
-        try:    
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except socket.error, msg:
+            self.log.debug("Error appeared while shuting down the socket." + str(msg))
+
+        try:
             self.socket.close()
 #            self.socket.shutdown(socket.SHUT_RDWR)
         except socket.error, msg:
-            self.log.debug("Error appeared while closing down the socket." + str(msg))  
-            
-            
-            
-        
-        
+            self.log.debug("Error appeared while closing down the socket." + str(msg))
+
         return True
 
     def read(self, timeout):

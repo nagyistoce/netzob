@@ -41,6 +41,7 @@ import datetime
 #+---------------------------------------------------------------------------+
 from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol
 from netzob.Common.Type.TypeConvertor import TypeConvertor
+from netzob.Common.MMSTD.Symbols.impl.UnknownSymbol import UnknownSymbol
 
 
 class TimeoutException(Exception):
@@ -53,7 +54,7 @@ class TimeoutException(Exception):
 #+---------------------------------------------------------------------------+
 class AbstractionLayer():
 
-    def __init__(self, communicationChannel, vocabulary, memory):
+    def __init__(self, communicationChannel, vocabulary, memory, cb_inputSymbol=None, cb_outputSymbol=None):
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Common.MMSTD.vocabulary.AbstractionLayer.py')
         self.communicationChannel = communicationChannel
@@ -63,14 +64,33 @@ class AbstractionLayer():
         self.outputMessages = []
         self.manipulatedSymbols = []
         self.outputSymbols = []
+        self.inputSymbols = []
         self.connected = False
+        self.cb_inputSymbol = cb_inputSymbol
+        self.cb_outputSymbol = cb_outputSymbol
 
     def isConnected(self):
         return self.connected
 
+    def setConnected(self):
+        self.log.debug("Connected changes to TRUE")
+        self.connected = True
+
+    def setDisconnected(self):
+        self.log.debug("Disconnected changes to FALSE")
+        self.connected = False
+
+#    def registerInputSymbol(self, symbol):
+#        self.manipulatedSymbols.append(symbol)
+#        self.inputSymbols.append(symbol)
+
+#    def registerOutputSymbol(self, symbol):
+#        self.manipulatedSymbols.append(symbol)
+#        self.outputSymbols.append(symbol)
+
     def openServer(self, vocabulary, outputState, isMaster):
         self.log.info("OpenServer " + str(self.communicationChannel))
-        self.connected = True
+        self.connected = False
 
         # if it's an instanciated network server we kill it
         # and create a new one !
@@ -78,12 +98,7 @@ class AbstractionLayer():
 #            self.communicationChannel = self.communicationChannel.createNewServer()
             pass
         else:
-            self.communicationChannel.openServer(vocabulary, outputState, isMaster)
-
-    def closeServer(self):
-        self.log.debug("CloseServer ...")
-        self.connected = False
-        self.communicationChannel.close()
+            self.communicationChannel.openServer(vocabulary, outputState, isMaster, self.setConnected, self.setDisconnected, self.registerInputSymbol, self.registerOutputSymbol)
 
     def connect(self):
         self.log.debug("Connect ...")
@@ -100,26 +115,25 @@ class AbstractionLayer():
                 self.connected = self.communicationChannel.open()
 
     def disconnect(self):
-        self.log.warn("Disconnect ...")
-        if self.connected:
-            self.log.debug("Disconnecting ...")
-            self.connected = not self.communicationChannel.close()
-            self.log.debug("Connected = " + str(self.connected))
-            # if its a server:
-            if self.communicationChannel.isServer():
-                self.log.debug("Close the server")
-                self.closeServer()
-
-            else:
-            # if its a client:
-                self.log.debug("Close the client...")
-                try:
-                    self.connected = self.communicationChannel.close()
-                except:
-                    self.log.warn("Error while trying to disconnect")
-
-        else:
-            self.log.debug("Impossible to disconnect : not connected")
+        self.log.debug("Disconnecting the abstraction layer")
+        self.communicationChannel.close()
+        self.connected = False
+#
+#
+#
+##        self.connected = not self.communicationChannel.close()
+#        self.log.debug("Connected = " + str(self.connected))
+#        # if its a server:
+#        if self.communicationChannel.isServer():
+#            self.log.debug("Close the server")
+#            self.closeServer()
+#        else:
+#            # if its a client:
+#            self.log.debug("Close the client...")
+#            try:
+#                self.connected = self.communicationChannel.close()
+#            except:
+#                self.log.warn("Error while trying to disconnect")
 
     #+-----------------------------------------------------------------------+
     #| receiveSymbol
@@ -129,6 +143,18 @@ class AbstractionLayer():
     def receiveSymbol(self):
         self.log.debug("Waiting for the reception of a message")
         return self.receiveSymbolWithTimeout(-1)
+
+    def registerInputSymbol(self, symbol):
+        self.manipulatedSymbols.append(symbol)
+        self.inputSymbols.append(symbol)
+        if (self.cb_inputSymbol != None):
+            self.cb_inputSymbol(symbol)
+
+    def registerOutputSymbol(self, symbol):
+        self.manipulatedSymbols.append(symbol)
+        self.outputSymbols.append(symbol)
+        if self.cb_outputSymbol != None:
+            self.cb_outputSymbol(symbol)
 
     def receiveSymbolWithTimeout(self, timeout):
         # First we read from the input the message
@@ -151,21 +177,21 @@ class AbstractionLayer():
 
             # We store the received messages its time and its abstract representation
             self.inputMessages.append([receptionTime, receivedData, symbol])
-            self.manipulatedSymbols.append(symbol)
-            self.outputSymbols.append(symbol)
+            self.registerInputSymbol(symbol)
+
             return (symbol, receivedData)
         else:
             if len(self.manipulatedSymbols) > nbMaxAttempts:
-                if  self.manipulatedSymbols[len(self.manipulatedSymbols) - 1].getType() == "EmptySymbol":
+                if  self.manipulatedSymbols[len(self.manipulatedSymbols) - 1].getType() == EmptySymbol.TYPE or self.manipulatedSymbols[len(self.manipulatedSymbols) - 1].getType() == UnknownSymbol.TYPE:
                     self.log.warn("Consider client has disconnected since no valid symbol received after " + str(nbMaxAttempts) + " attempts")
                     return (None, None)
 
             symbol = EmptySymbol()
-            self.manipulatedSymbols.append(symbol)
+            self.registerInputSymbol(symbol)
             return (symbol, None)
 
     def writeSymbol(self, symbol):
-        
+
         self.log.info("Sending symbol '" + str(symbol) + "' over the communication channel")
         # First we specialize the symbol in a message
         (binMessage, strMessage) = self.specialize(symbol)
@@ -176,11 +202,9 @@ class AbstractionLayer():
         now = datetime.datetime.now()
         sendingTime = now.strftime("%H:%M:%S")
         self.outputMessages.append([sendingTime, strMessage, symbol])
-        self.manipulatedSymbols.append(symbol)
-        
-        self.communicationChannel.write(binMessage)
+        self.registerOutputSymbol(symbol)
 
-        
+        self.communicationChannel.write(binMessage)
 
     #+-----------------------------------------------------------------------+
     #| abstract
@@ -191,10 +215,12 @@ class AbstractionLayer():
         self.log.debug("We abstract the received message : " + str(message))
         # we search in the vocabulary an entry which match the message
         for symbol in self.vocabulary.getSymbols():
+            self.log.debug("Try to abstract message through : " + str(symbol.getName()))
             if symbol.getRoot().compare(TypeConvertor.strBitarray2Bitarray(message), 0, False, self.vocabulary, self.memory) != -1:
                 self.log.info("The message " + str(message) + " match symbol " + symbol.getName())
                 # It matchs so we learn from it if it's possible
                 self.memory.createMemory()
+                self.log.debug("We memorize the symbol " + str(symbol.getRoot()))
                 symbol.getRoot().learn(TypeConvertor.strBitarray2Bitarray(message), 0, False, self.vocabulary, self.memory)
                 self.memory.persistMemory()
                 return symbol
@@ -204,7 +230,7 @@ class AbstractionLayer():
                 self.log.debug("Restore possibly learnt value")
                 symbol.getRoot().restore(self.vocabulary, self.memory)
 
-        return EmptySymbol()
+        return UnknownSymbol()
 
     def specialize(self, symbol):
         self.log.info("Specializing the symbol " + symbol.getName())
@@ -219,7 +245,11 @@ class AbstractionLayer():
     #| @return an array contening all the symbols
     #+-----------------------------------------------------------------------+
     def getGeneratedInputAndOutputsSymbols(self):
+        print "communication channel = " + str(self.communicationChannel)
         return self.manipulatedSymbols
+
+    def getGeneratedInputSymbols(self):
+        return self.inputSymbols
 
     def getGeneratedOutputSymbols(self):
         return self.outputSymbols

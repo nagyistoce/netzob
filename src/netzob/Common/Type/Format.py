@@ -25,6 +25,8 @@
 #|             Supélec, http://www.rennes.supelec.fr/ren/rd/cidre/           |
 #+---------------------------------------------------------------------------+
 
+import logging
+
 
 #+----------------------------------------------
 #| Format representation of data
@@ -43,6 +45,8 @@ class Format():
     ASCII = "ascii"
     BASE64_ENC = "base64enc"
     BASE64_DEC = "base64dec"
+
+    formatVisualizationUnitSizes = {BINARY: 1, HEX: 4, STRING: 8}
 
     # Complex formats
     IP = "ip"
@@ -64,3 +68,10 @@ class Format():
     #+---------------------------------------------------------------------------+
     def getExtendedSupportedFormats():
         return [Format.BINARY, Format.OCTAL, Format.DECIMAL, Format.HEX, Format.STRING, Format.IP]
+
+    @staticmethod
+    def getUnitSize(format):
+        if format in Format.formatVisualizationUnitSizes:
+            return Format.formatVisualizationUnitSizes[format]
+        else:
+            return None

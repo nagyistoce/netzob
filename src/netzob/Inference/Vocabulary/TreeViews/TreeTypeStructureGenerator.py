@@ -30,13 +30,13 @@
 #+----------------------------------------------
 import logging
 import gtk
-from netzob.Common.Field import Field
+import uuid
 
 #+----------------------------------------------
 #| Local Imports
 #+----------------------------------------------
 from netzob.Common.MMSTD.Dictionary.Memory import Memory
-from netzob.Common.Type.TypeConvertor import TypeConvertor
+from netzob.Inference.Vocabulary.TreeViews.AbstractViewGenerator import AbstractViewGenerator
 
 
 #+----------------------------------------------
@@ -44,13 +44,14 @@ from netzob.Common.Type.TypeConvertor import TypeConvertor
 #|     update and generates the treeview and its
 #|     treestore dedicated to the type structure
 #+----------------------------------------------
-class TreeTypeStructureGenerator():
+class TreeTypeStructureGenerator(AbstractViewGenerator):
 
     #+----------------------------------------------
     #| Constructor:
     #| @param vbox : where the treeview will be hold
     #+----------------------------------------------
     def __init__(self):
+        AbstractViewGenerator.__init__(self, uuid.uuid4(), "Type Structure")
         self.symbol = None
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Modelization.TreeViews.TreeTypeStructureGenerator.py')
@@ -97,21 +98,8 @@ class TreeTypeStructureGenerator():
     #+----------------------------------------------
     def error(self):
         self.log.warning("The treeview for the symbol is in error mode")
-        pass
-
-    #+----------------------------------------------
-    #| show:
-    #|   Display the panel
-    #+----------------------------------------------
-    def show(self):
-        self.scroll.show_all()
-
-    #+----------------------------------------------
-    #| hide:
-    #|   Hide the panel
-    #+----------------------------------------------
-    def hide(self):
-        self.scroll.hide_all()
+        # TODO : delete pass statement if useless
+        #pass
 
     #+----------------------------------------------
     #| default:
@@ -126,7 +114,7 @@ class TreeTypeStructureGenerator():
         for field in self.getSymbol().getFields():
             tab = ""
             for k in range(field.getEncapsulationLevel()):
-                tab += " "
+                tab += "        "
             if field.getName() == "__sep__":  # Do not show the delimiter fields
                 continue
 
@@ -152,6 +140,9 @@ class TreeTypeStructureGenerator():
         return self.treeview
 
     def getScrollLib(self):
+        return self.scroll
+
+    def getWidget(self):
         return self.scroll
 
     def getSymbol(self):

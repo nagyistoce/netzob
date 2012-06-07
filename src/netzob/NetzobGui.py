@@ -40,6 +40,7 @@ import optparse
 #+---------------------------------------------------------------------------+
 #| Local application imports
 #+---------------------------------------------------------------------------+
+from netzob.Common import DepCheck
 from netzob.Common.Menu import Menu
 from netzob.Inference.Vocabulary.UImodelization import UImodelization
 from netzob.Inference.Grammar.UIGrammarInference import UIGrammarInference
@@ -48,7 +49,6 @@ from netzob.Simulator.UISimulator import UISimulator
 from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
 from netzob.Common.Workspace import Workspace
 from netzob.Common import CommandLine
-
 
 
 #+----------------------------------------------
@@ -61,30 +61,44 @@ class NetzobGui(gtk.Window):
     #| Constructor:
     #+----------------------------------------------
     def __init__(self):
-        
-        # Command line commands        
+
+        # Command line commands
         parser = CommandLine.get_parser()
         opts, args = parser.parse_args()
-        
-        self.uiThread = threading.Thread(None, self.guiThread, None, (), {})
+
+        (status, version) = DepCheck.test_lxml()
+        if status == False:
+            logging.fatal("Version of python-lxml ({0}) is too old for Netzob. Please install a recent version (>= 2.3)".format(version))
+            sys.exit()
+
         # First we initialize and verify all the resources
         if not ResourcesConfiguration.initializeResources():
             logging.fatal("Error while configuring the resources of Netzob")
             sys.exit()
 
-        if opts.workspace == None :
+        if opts.workspace == None:
             workspace = str(ResourcesConfiguration.getWorkspaceFile())
-        else :
+        else:
             workspace = opts.workspace
-            
+
         logging.debug("The workspace : " + str(workspace))
-        
+
         # loading the workspace
         self.currentWorkspace = (Workspace.loadWorkspace(workspace))
 
+        # the semi-automatic loading of the workspace has failed (second attempt)
         if self.currentWorkspace == None:
-            logging.fatal("Stopping the execution (no workspace computed) !")
-            sys.exit()
+            # we force the creation (or specification) of the workspace
+            if not ResourcesConfiguration.initializeResources(True):
+                logging.fatal("Error while configuring the resources of Netzob")
+                sys.exit()
+            workspace = str(ResourcesConfiguration.getWorkspaceFile())
+            logging.debug("The workspace : " + str(workspace))
+            # loading the workspace
+            self.currentWorkspace = (Workspace.loadWorkspace(workspace))
+            if self.currentWorkspace == None:
+                logging.fatal("Stopping the execution (no workspace computed) !")
+                sys.exit()
 
         self.currentProject = self.currentWorkspace.getLastProject()
 
@@ -100,7 +114,7 @@ class NetzobGui(gtk.Window):
         self.set_default_size(800, 600)
         self.set_title("Netzob : Inferring communication protocols")
 
-        self.set_icon_from_file(("%s/logo.png" % 
+        self.set_icon_from_file(("%s/logo.png" %
                                  ResourcesConfiguration.getStaticResources()))
         self.connect("delete_event", self.evnmtDelete)
         self.connect("destroy", self.destroy)
@@ -180,7 +194,7 @@ class NetzobGui(gtk.Window):
         self.update()
 
     def offerToSaveCurrentProject(self):
-        questionMsg = ("Do you want to save the current project (" + 
+        questionMsg = ("Do you want to save the current project (" +
                        self.getCurrentProject().getName() + ")")
         md = (gtk.MessageDialog(
                 None, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
@@ -193,9 +207,6 @@ class NetzobGui(gtk.Window):
 
     def startGui(self):
         gtk.main()
-        # UI thread launching
-        #self.uiThread = threading.Thread(None, self.guiThread, None, (), {})
-#        self.uiThread.start()
 
     def evnmtDelete(self, widget, event, data=None):
         return False
@@ -212,9 +223,6 @@ class NetzobGui(gtk.Window):
             page[1].kill()
         gtk.main_quit()
 
-    def guiThread(self):
-        gtk.main()
-
     #+----------------------------------------------
     #| Called when user select a notebook
     #+----------------------------------------------
@@ -229,6 +237,9 @@ class NetzobGui(gtk.Window):
 
     def getCurrentWorkspace(self):
         return self.currentWorkspace
+
+    def getMenu(self):
+        return self.menu
 
 # To be deleted : in few days
 #    def getDictionary(self):

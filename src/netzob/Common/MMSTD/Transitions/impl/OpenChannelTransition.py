@@ -30,8 +30,8 @@
 #+---------------------------------------------------------------------------+
 import logging
 import time
-
-
+from datetime import datetime
+import uuid
 #+---------------------------------------------------------------------------+
 #| Related third party imports
 #+---------------------------------------------------------------------------+
@@ -42,6 +42,8 @@ from lxml.etree import ElementTree
 #+---------------------------------------------------------------------------+
 from netzob.Common.MMSTD.Transitions.AbstractTransition import AbstractTransition
 from lxml import etree
+from netzob.Common.MMSTD.Transitions.impl.CloseChannelTransition import CloseChannelTransition
+from netzob.Common.MMSTD.States.impl.NormalState import NormalState
 
 
 #+---------------------------------------------------------------------------+
@@ -50,8 +52,10 @@ from lxml import etree
 #+---------------------------------------------------------------------------+
 class OpenChannelTransition(AbstractTransition):
 
+    TYPE = "OpenChannel"
+
     def __init__(self, id, name, inputState, outputState, connectionTime, maxNumberOfAttempt):
-        AbstractTransition.__init__(self, "OpenChannel", id, name, inputState, outputState)
+        AbstractTransition.__init__(self, OpenChannelTransition.TYPE, id, name, inputState, outputState)
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Common.MMSTD.Transitions.impl.OpenChannelTransition.py')
         self.connectionTime = connectionTime
@@ -76,12 +80,54 @@ class OpenChannelTransition(AbstractTransition):
         self.log.debug("Client is it a server ? " + str(abstractionLayer.getCommunicationChannel().isServer()))
 
         if abstractionLayer.getCommunicationChannel().isServer():
-            # start a specific listening network thread
+            self.log.debug("Cleaning the memory")
+            abstractionLayer.getMemory().cleanMemory()
+
             self.activate()
             self.log.info("We instanciate a new server and close the current MMSTD")
             abstractionLayer.openServer(abstractionLayer.getVocabulary(), self.outputState, False)
             self.deactivate()
-            return None
+
+            startTime = datetime.now()
+
+            # Here we wait for someone to connect to our server !
+            finish = abstractionLayer.isConnected()
+            error = False
+            while (not finish):
+                self.log.info("No one is connected !")
+                currentTime = datetime.now()
+                if ((currentTime - startTime).microseconds > self.connectionTime):
+                    finish = True
+                    error = True
+                else:
+                    finish = abstractionLayer.isConnected()
+                time.sleep(1)
+
+            if error:
+                self.log.warn("No client has connect to our oracle.")
+                return None
+            else:
+                error = False
+                startTime = datetime.now()
+                finish = not abstractionLayer.isConnected()
+                while (not finish):
+                    currentTime = datetime.now()
+                    if ((currentTime - startTime).microseconds > 60000):
+                        finish = True
+                        error = True
+                    else:
+                        finish = not abstractionLayer.isConnected()
+                    time.sleep(1)
+                if error:
+                    self.log.warn("Stop the server even if the client are still up")
+
+                self.log.debug("The openChannelTransition finishes (the generated instance has been closed)!")
+                # We create a Close Channel Transition to close the server
+                inputState = NormalState(uuid.uuid4(), "Input State of the close server transition")
+                outputState = NormalState(uuid.uuid4(), "Output State of the close server transition")
+                closeChannelTransition = CloseChannelTransition(uuid.uuid4(), "Close Server transition", inputState, outputState, 300)
+                inputState.registerTransition(closeChannelTransition)
+                return inputState
         else:
             self.activate()
             result = self.openConnection(abstractionLayer)
@@ -104,7 +150,27 @@ class OpenChannelTransition(AbstractTransition):
             self.log.info("We instanciate a new server and close the current MMSTD")
             abstractionLayer.openServer(abstractionLayer.getVocabulary(), self.outputState, True)
             self.deactivate()
-            return None
+
+            startTime = datetime.now()
+
+            # Here we wait for someone to connect to our server !
+            finish = abstractionLayer.isConnected()
+            error = False
+            while (not finish):
+                self.log.info("No one is connected !")
+                currentTime = datetime.now()
+                if ((currentTime - startTime).microseconds > self.connectionTime):
+                    finish = True
+                    error = True
+                else:
+                    finish = abstractionLayer.isConnected()
+                time.sleep(1)
+
+            if error:
+                self.log.warn("No client has connect to our oracle.")
+                return None
+            else:
+                return self.outputState
         else:
             self.activate()
             result = self.openConnection(abstractionLayer)

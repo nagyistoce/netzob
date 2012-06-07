@@ -38,11 +38,13 @@ import uuid
 #| Local Imports
 #+---------------------------------------------------------------------------+
 from netzob.Common.Symbol import Symbol
-from netzob.Inference.Vocabulary.Clusterer import Clusterer
+from netzob.Common.Session import Session
 from netzob.Common.ProjectConfiguration import ProjectConfiguration
 from netzob.Common.Field import Field
 from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol
 from netzob.Inference.Vocabulary.Alignment.UPGMA import UPGMA
+from netzob.Common.Models.Factories.AbstractMessageFactory import AbstractMessageFactory
+from netzob.Common.MMSTD.Symbols.impl.UnknownSymbol import UnknownSymbol
 
 
 #+---------------------------------------------------------------------------+
@@ -55,14 +57,18 @@ class Vocabulary(object):
     #| Constructor
     #+-----------------------------------------------------------------------+
     def __init__(self):
+        self.messages = []
         self.symbols = []
+        self.sessions = []
 
-    def getAllMessages(self):
-        messages = []
-        for symbol in self.symbols:
-            for msg in symbol.getMessages():
-                messages.append(msg)
-        return messages
+    def getMessages(self):
+        return self.messages
+
+    def getMessageByID(self, id):
+        for message in self.messages:
+            if message.getID() == id:
+                return message
+        return None
 
     def getSymbolWhichContainsMessage(self, message):
         for symbol in self.symbols:
@@ -74,15 +80,59 @@ class Vocabulary(object):
     def getSymbols(self):
         return self.symbols
 
+    def getSessions(self):
+        return self.sessions
+
     def getSymbol(self, symbolID):
         for symbol in self.symbols:
             if symbol.getID() == symbolID:
                 return symbol
-        # Exceptions : if ID = 0, we return an EmptySymbol
-        if symbolID == str(0) :
-            return EmptySymbol()    
-        
+        # Exceptions : if ID = "EmptySymbol", we return an EmptySymbol
+        if symbolID == str("EmptySymbol"):
+            return EmptySymbol()
+        # Exceptions : if ID = "UnknownSymbol", we return an UnknownSymbol
+        if symbolID == str("UnknownSymbol"):
+            return UnknownSymbol()
         return None
+
+    def getSymbolByName(self, symbolName):
+        for symbol in self.symbols:
+            if symbol.getName() == symbolName:
+                return symbol
+            # Exceptions : if name = "EmptySymbol", we return an EmptySymbol
+            if symbolName == EmptySymbol.TYPE:
+                return EmptySymbol()
+            # Exceptions : if name = "UnkownSymbol", we return an UnknownSymbol
+            if symbolName == UnknownSymbol.TYPE:
+                return UnknownSymbol()
+        return None
+
+    def getSymbolByID(self, symbolID):
+        for symbol in self.symbols:
+            if str(symbol.getID()) == str(symbolID):
+                return symbol
+        return None
+
+    def getSession(self, sessionID):
+        for session in self.sessions:
+            if session.getID() == sessionID:
+                return session
+        return None
+
+    def setMessages(self, messages):
+        self.messages = messages
+
+    def setSymbols(self, symbols):
+        self.symbols = symbols
+
+    def setSessions(self, sessions):
+        self.sessions = sessions
+
+    def addMessage(self, message):
+        if not message in self.messages:
+            self.messages.append(message)
+        else:
+            logging.warn("The message cannot be added in the vocabulary since it's already declared in.")
 
     def addSymbol(self, symbol):
         if not symbol in self.symbols:
@@ -90,8 +140,20 @@ class Vocabulary(object):
         else:
             logging.warn("The symbol cannot be added in the vocabulary since it's already declared in.")
 
+    def addSession(self, session):
+        if not session in self.sessions:
+            self.sessions.append(session)
+        else:
+            logging.warn("The session cannot be added in the vocabulary since it's already declared in.")
+
     def removeSymbol(self, symbol):
         self.symbols.remove(symbol)
+
+    def removeSession(self, session):
+        self.sessions.remove(session)
+
+    def removeMessage(self, message):
+        self.messages.remove(message)
 
     def getVariables(self):
         variables = []
@@ -100,7 +162,7 @@ class Vocabulary(object):
                 if not variable in variables:
                     variables.append(variable)
         return variables
-    
+
     def getVariableByID(self, idVar):
         for symbol in self.symbols:
             for variable in symbol.getVariables():
@@ -124,41 +186,6 @@ class Vocabulary(object):
         return nbSteps
 
     #+----------------------------------------------
-    #| alignWithNeedlemanWunsh:
-    #|  Align each messages of each symbol with the
-    #|  Needleman Wunsh algorithm
-    #+----------------------------------------------
-    def alignWithNeedlemanWunsh(self, project, percentOfAlignmentProgessBar_cb):
-        tmpSymbols = []
-        t1 = time.time()
-        fraction = 0.0
-#        step = 1 / self.estimateNeedlemanWunschNumberOfExecutionStep(project)
-        
-        # First we retrieve all the parameters of the CLUSTERING / ALIGNMENT
-        defaultFormat = project.getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_GLOBAL_FORMAT)
-        nbIteration = project.getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_NB_ITERATION)
-        minEquivalence = project.getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_EQUIVALENCE_THRESHOLD)
-        doInternalSlick = project.getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_DO_INTERNAL_SLICK)
-        doOrphanReduction = project.getConfiguration().getVocabularyInferenceParameter(ProjectConfiguration.VOCABULARY_ORPHAN_REDUCTION)
-        
-        # We try to cluster each symbol
-        for symbol in self.symbols:
-            clusteringSolution = UPGMA(project, [symbol], True, nbIteration, minEquivalence, doInternalSlick, defaultFormat, percentOfAlignmentProgessBar_cb)
-            tmpSymbols.extend(clusteringSolution.executeClustering())
-
-        # Now that all the symbols are reorganized separately
-        # we should consider merging them
-        clusteringSolution = UPGMA(project, tmpSymbols, False, nbIteration, minEquivalence, doInternalSlick, defaultFormat, percentOfAlignmentProgessBar_cb)        
-        self.symbols = clusteringSolution.executeClustering()        
-        
-        if doOrphanReduction :
-            logging.info("Execute orphan reduction")
-            clusteringSolution.executeOrphanReduction()
-        
-        logging.info("Time of parsing : " + str(time.time() - t1))
-
-
-    #+----------------------------------------------
     #| alignWithDelimiter:
     #|  Align each message of each symbol with a specific delimiter
     #+----------------------------------------------
@@ -176,18 +203,37 @@ class Vocabulary(object):
 
     def save(self, root, namespace_project, namespace_common):
         xmlVocabulary = etree.SubElement(root, "{" + namespace_project + "}vocabulary")
+        # Messages
+        xmlMessages = etree.SubElement(xmlVocabulary, "{" + namespace_project + "}messages")
+        for message in self.messages:
+            AbstractMessageFactory.save(message, xmlMessages, namespace_project, namespace_common)
+        # Symbols
         xmlSymbols = etree.SubElement(xmlVocabulary, "{" + namespace_project + "}symbols")
         for symbol in self.symbols:
             symbol.save(xmlSymbols, namespace_project, namespace_common)
+        # Sessions
+        xmlSessions = etree.SubElement(xmlVocabulary, "{" + namespace_project + "}sessions")
+        for session in self.sessions:
+            session.save(xmlSessions, namespace_project, namespace_common)
 
     @staticmethod
-    def loadVocabulary(xmlRoot, namespace, namespace_common, version, project):
+    def loadVocabulary(xmlRoot, namespace_project, namespace_common, version, project):
         vocabulary = Vocabulary()
 
         if version == "0.1":
-            # parse all the symbols which are declared in the vocabulary
-            for xmlSymbol in xmlRoot.findall("{" + namespace + "}symbols/{" + namespace + "}symbol"):
-                symbol = Symbol.loadSymbol(xmlSymbol, namespace, namespace_common, version, project)
+            # Messages
+            for xmlMessage in xmlRoot.findall("{" + namespace_project + "}messages/{" + namespace_common + "}message"):
+                message = AbstractMessageFactory.loadFromXML(xmlMessage, namespace_common, version)
+                if message != None:
+                    vocabulary.addMessage(message)
+            # Symbols
+            for xmlSymbol in xmlRoot.findall("{" + namespace_project + "}symbols/{" + namespace_project + "}symbol"):
+                symbol = Symbol.loadSymbol(xmlSymbol, namespace_project, namespace_common, version, project, vocabulary)
                 if symbol != None:
                     vocabulary.addSymbol(symbol)
+            # Sessions
+            for xmlSession in xmlRoot.findall("{" + namespace_project + "}sessions/{" + namespace_common + "}session"):
+                session = Session.loadFromXML(xmlSession, namespace_project, namespace_common, version, vocabulary)
+                if session != None:
+                    vocabulary.addSession(session)
         return vocabulary

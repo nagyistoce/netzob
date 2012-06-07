@@ -35,14 +35,12 @@ import re
 import uuid
 from lxml.etree import ElementTree
 from lxml import etree
-
 import types
 
 #+---------------------------------------------------------------------------+
 #| Local Imports
 #+---------------------------------------------------------------------------+
 from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
-
 from netzob.Common.ProjectConfiguration import ProjectConfiguration
 from netzob.Common.Vocabulary import Vocabulary
 from netzob.Common.Grammar import Grammar
@@ -60,14 +58,10 @@ def loadProject_0_1(projectFile):
     tree.parse(projectFile)
 
     xmlProject = tree.getroot()
-    # Register the namespace (2 way depending of the version)
 
-    try:
-        etree.register_namespace('netzob', PROJECT_NAMESPACE)
-        etree.register_namespace('netzob-common', COMMON_NAMESPACE)
-    except AttributeError:
-        etree._namespace_map[PROJECT_NAMESPACE] = 'netzob'
-        etree._namespace_map[COMMON_NAMESPACE] = 'netzob-common'
+    # Register the namespace
+    etree.register_namespace('netzob', PROJECT_NAMESPACE)
+    etree.register_namespace('netzob-common', COMMON_NAMESPACE)
 
     projectID = xmlProject.get('id')
     projectName = xmlProject.get('name', 'none')
@@ -88,7 +82,8 @@ def loadProject_0_1(projectFile):
     # Parse the grammar
     if xmlProject.find("{" + PROJECT_NAMESPACE + "}grammar") != None:
         projectGrammar = Grammar.loadGrammar(xmlProject.find("{" + PROJECT_NAMESPACE + "}grammar"), projectVocabulary, PROJECT_NAMESPACE, "0.1")
-        project.setGrammar(projectGrammar)
+        if projectGrammar != None:
+            project.setGrammar(projectGrammar)
 
     return project
 
@@ -117,18 +112,13 @@ class Project(object):
         self.creationDate = creationDate
         self.path = path
         self.vocabulary = Vocabulary()
-        self.grammar = None
+        self.grammar = Grammar()
         self.configuration = ProjectConfiguration.loadDefaultProjectConfiguration()
 
     def generateXMLConfigFile(self):
-
-        # Register the namespace (2 way depending of the version)
-        try:
-            etree.register_namespace('netzob', PROJECT_NAMESPACE)
-            etree.register_namespace('netzob-common', COMMON_NAMESPACE)
-        except AttributeError:
-            etree._namespace_map[PROJECT_NAMESPACE] = 'netzob'
-            etree._namespace_map[COMMON_NAMESPACE] = 'netzob-common'
+        # Register the namespace
+        etree.register_namespace('netzob', PROJECT_NAMESPACE)
+        etree.register_namespace('netzob-common', COMMON_NAMESPACE)
 
         # Dump the file
         root = etree.Element("{" + PROJECT_NAMESPACE + "}project")
@@ -200,6 +190,43 @@ class Project(object):
         workspace.saveConfigFile()
 
         return project
+
+    @staticmethod
+    def getNameOfProject(workspace, projectDirectory):
+        projectFile = os.path.join(os.path.join(workspace.getPath(), projectDirectory), Project.CONFIGURATION_FILENAME)
+
+        # verify we can open and read the file
+        if projectFile == None:
+            return None
+        # is the projectFile is a file
+        if not os.path.isfile(projectFile):
+            logging.warn("The specified project's configuration file (" + str(projectFile) + ") is not valid : its not a file.")
+            return None
+        # is it readable
+        if not os.access(projectFile, os.R_OK):
+            logging.warn("The specified project's configuration file (" + str(projectFile) + ") is not readable.")
+            return None
+
+        # We validate the file given the schemas
+        for xmlSchemaFile in Project.PROJECT_SCHEMAS.keys():
+            xmlSchemaPath = os.path.join(ResourcesConfiguration.getStaticResources(), xmlSchemaFile)
+            # If we find a version which validates the XML, we parse with the associated function
+            if Project.isSchemaValidateXML(xmlSchemaPath, projectFile):
+                logging.debug("The file " + str(projectFile) + " validates the project configuration file.")
+                tree = ElementTree()
+                tree.parse(projectFile)
+                xmlProject = tree.getroot()
+                # Register the namespace
+                etree.register_namespace('netzob', PROJECT_NAMESPACE)
+                etree.register_namespace('netzob-common', COMMON_NAMESPACE)
+
+                projectName = xmlProject.get('name', 'none')
+
+                if projectName != None and projectName != 'none':
+                    return projectName
+            else:
+                logging.warn("The project declared in file (" + projectFile + ") is not valid")
+        return None
 
     @staticmethod
     def loadProject(workspace, projectDirectory):
@@ -302,8 +329,14 @@ class Project(object):
     def getConfiguration(self):
         return self.configuration
 
+    def setID(self, id):
+        self.id = id
+
     def setName(self, name):
         self.name = name
+
+    def setPath(self, path):
+        self.path = path
 
     def setCreationDate(self, creationDate):
         self.creationDate = creationDate

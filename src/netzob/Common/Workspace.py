@@ -81,14 +81,13 @@ def loadWorkspace_0_1(workspacePath, workspaceFile):
 
     # Load the already imported traces
     if xmlWorkspace.find("{" + WORKSPACE_NAMESPACE + "}traces") != None:
-
         xmlTraces = xmlWorkspace.find("{" + WORKSPACE_NAMESPACE + "}traces")
         for xmlTrace in xmlTraces.findall("{" + WORKSPACE_NAMESPACE + "}trace"):
-            trace = ImportedTrace.loadSymbol(xmlTrace, WORKSPACE_NAMESPACE, COMMON_NAMESPACE, "0.1", workspace.getPathOfTraces())
+            trace = ImportedTrace.loadTrace(xmlTrace, WORKSPACE_NAMESPACE, COMMON_NAMESPACE, "0.1", workspace.getPathOfTraces())
             if trace != None:
                 workspace.addImportedTrace(trace)
 
-    # Load the projects
+    # Reference the projects
     if xmlWorkspace.find("{" + WORKSPACE_NAMESPACE + "}projects") != None:
         for xmlProject in xmlWorkspace.findall("{" + WORKSPACE_NAMESPACE + "}projects/{" + WORKSPACE_NAMESPACE + "}project"):
             project_path = xmlProject.get("path")
@@ -126,6 +125,15 @@ class Workspace(object):
         self.pathOfPrototypes = pathOfPrototypes
         self.lastProjectPath = lastProjectPath
         self.importedTraces = importedTraces
+
+    def getNameOfProjects(self):
+        nameOfProjects = []
+        for project_path in self.getProjectsPath():
+            from netzob.Common.Project import Project
+            projectName = Project.getNameOfProject(self, project_path)
+            if projectName != None:
+                nameOfProjects.append((projectName, project_path))
+        return nameOfProjects
 
     def getProjects(self):
         projects = []
@@ -174,13 +182,9 @@ class Workspace(object):
 
         logging.info("Save the config file of the workspace " + self.getName() + " in " + workspaceFile)
 
-        # Register the namespace (2 way depending of the version)
-        try:
-            etree.register_namespace('netzob', WORKSPACE_NAMESPACE)
-            etree.register_namespace('netzob-common', COMMON_NAMESPACE)
-        except AttributeError:
-            etree._namespace_map[WORKSPACE_NAMESPACE] = 'netzob'
-            etree._namespace_map[COMMON_NAMESPACE] = 'netzob-common'
+        # Register the namespace
+        etree.register_namespace('netzob', WORKSPACE_NAMESPACE)
+        etree.register_namespace('netzob-common', COMMON_NAMESPACE)
 
         # Dump the file
         root = etree.Element("{" + WORKSPACE_NAMESPACE + "}workspace")
@@ -189,6 +193,7 @@ class Workspace(object):
 
         xmlWorkspaceConfig = etree.SubElement(root, "{" + WORKSPACE_NAMESPACE + "}configuration")
 
+        relTracePath = os.path.relpath(self.getPathOfTraces(), self.path)
         xmlTraces = etree.SubElement(xmlWorkspaceConfig, "{" + WORKSPACE_NAMESPACE + "}traces")
         xmlTraces.text = str(self.getPathOfTraces())
 
@@ -203,49 +208,45 @@ class Workspace(object):
         for project in self.getProjects():
             xmlProject = etree.SubElement(xmlWorkspaceProjects, "{" + WORKSPACE_NAMESPACE + "}project")
             xmlProject.set("path", project.getPath())
-#
-#        for projectPath in self.getProjectsPath():
-#            logging.info("--> " + projectPath)
-#
 
         xmlWorkspaceImported = etree.SubElement(root, "{" + WORKSPACE_NAMESPACE + "}traces")
         for importedTrace in self.getImportedTraces():
-            importedTrace.save(xmlWorkspaceImported, WORKSPACE_NAMESPACE, COMMON_NAMESPACE, self.getPathOfTraces())
+            importedTrace.save(xmlWorkspaceImported, WORKSPACE_NAMESPACE, COMMON_NAMESPACE, os.path.join(self.path, self.getPathOfTraces()))
 
         tree = ElementTree(root)
         tree.write(workspaceFile)
 
     @staticmethod
     def createWorkspace(name, path):
-        tracesPath = os.path.join(path, "traces")
-        projectsPath = os.path.join(path, "projects")
-        prototypesPath = os.path.join(path, "prototypes")
-        loggingPath = os.path.join(path, "logging")
-        pathOfLogging = os.path.join(path, "logging/logging.conf")
+        tracesPath = "traces"
+        projectsPath = "projects"
+        prototypesPath = "prototypes"
+        loggingPath = "logging"
+        pathOfLogging = "logging/logging.conf"
 
         # we create a "traces" directory if it doesn't yet exist
-        if not os.path.isdir(tracesPath):
-            os.mkdir(tracesPath)
+        if not os.path.isdir(os.path.join(path, tracesPath)):
+            os.mkdir(os.path.join(path, tracesPath))
 
         # we create a "projects" directory if it doesn't yet exist
-        if not os.path.isdir(projectsPath):
-            os.mkdir(projectsPath)
+        if not os.path.isdir(os.path.join(path, projectsPath)):
+            os.mkdir(os.path.join(path, projectsPath))
 
         # we create the "prototypes" directory if it doesn't yet exist
-        if not os.path.isdir(prototypesPath):
-            os.mkdir(prototypesPath)
+        if not os.path.isdir(os.path.join(path, prototypesPath)):
+            os.mkdir(os.path.join(path, prototypesPath))
             # we upload in it the default repository file
             from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
             staticRepositoryPath = os.path.join(os.path.join(ResourcesConfiguration.getStaticResources(), "defaults"), "repository.xml.default")
-            shutil.copy(staticRepositoryPath, os.path.join(prototypesPath, "repository.xml"))
+            shutil.copy(staticRepositoryPath, os.path.join(os.path.join(path, prototypesPath), "repository.xml"))
 
         # we create the "logging" directory if it doesn't yet exist
-        if not os.path.isdir(loggingPath):
-            os.mkdir(loggingPath)
+        if not os.path.isdir(os.path.join(path, loggingPath)):
+            os.mkdir(os.path.join(path, loggingPath))
             # we upload in it the default repository file
             from netzob.Common.ResourcesConfiguration import ResourcesConfiguration
             staticLoggingPath = os.path.join(os.path.join(ResourcesConfiguration.getStaticResources(), "defaults"), "logging.conf.default")
-            shutil.copy(staticLoggingPath, os.path.join(loggingPath, "logging.conf"))
+            shutil.copy(staticLoggingPath, os.path.join(os.path.join(path, loggingPath), "logging.conf"))
 
         workspace = Workspace(name, datetime.datetime.now(), path, tracesPath, pathOfLogging, prototypesPath)
         workspace.saveConfigFile()
@@ -281,7 +282,7 @@ class Workspace(object):
                 if workspace != None:
                     return workspace
             else:
-                logging.fatal("The specified Workspace file is not valid according to the XSD.")
+                logging.fatal("The specified Workspace file is not valid according to the XSD found in %s." % (xmlSchemaPath))
 
         return None
 
@@ -319,7 +320,8 @@ class Workspace(object):
             xmlRoot = etree.parse(xmlFile)
             schema.assertValid(xmlRoot)
             return True
-        except:
+        except Exception as e:
+            logging.warn(e)
             log = schema.error_log
             error = log.last_error
             logging.warn(error)

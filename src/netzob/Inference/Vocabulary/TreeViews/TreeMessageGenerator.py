@@ -32,14 +32,16 @@ import logging
 import pango
 import gobject
 import gtk
+import glib
+import uuid
+import time
 
 #+----------------------------------------------
 #| Local Imports
 #+----------------------------------------------
 from netzob.Common.Field import Field
 from netzob.Common.NetzobException import NetzobException
-import uuid
-import time
+from netzob.Inference.Vocabulary.TreeViews.AbstractViewGenerator import AbstractViewGenerator
 
 
 #+----------------------------------------------
@@ -47,13 +49,14 @@ import time
 #|     update and generates the treeview and its
 #|     treestore dedicated to the messages
 #+----------------------------------------------
-class TreeMessageGenerator():
+class TreeMessageGenerator(AbstractViewGenerator):
 
     #+----------------------------------------------
     #| Constructor:
     #| @param vbox : where the treeview will be hold
     #+----------------------------------------------
     def __init__(self):
+        AbstractViewGenerator.__init__(self, uuid.uuid4(), "Messages")
         self.symbol = None
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Modelization.TreeStores.TreeMessageGenerator.py')
@@ -69,13 +72,14 @@ class TreeMessageGenerator():
         # creation of the treeview
         self.treeview = gtk.TreeView(self.treestore)
         self.treeview.set_reorderable(True)
-        
+
         # maximum number of columns = 200
-        for i_col in range(4, 204) :
+        for i_col in range(4, 204):
             # Define cellRenderer object
             textCellRenderer = gtk.CellRendererText()
             textCellRenderer.set_property("size-points", 9)
             textCellRenderer.set_property('background-set', True)
+            textCellRenderer.set_property('family', 'Courier')
 
             # Column Messages
             lvcolumn = gtk.TreeViewColumn(str("#" + str(i_col - 4)))
@@ -84,10 +88,9 @@ class TreeMessageGenerator():
             lvcolumn.set_clickable(True)
             lvcolumn.pack_start(textCellRenderer, True)
             lvcolumn.set_attributes(textCellRenderer, markup=i_col, background=1, weight=2, editable=3)
-            
+
 #            self.treeview.append_column(lvcolumn)
             self.currentColumns.append(lvcolumn)
-        
 
         self.treeview.show()
         self.treeview.set_reorderable(True)
@@ -132,34 +135,42 @@ class TreeMessageGenerator():
     #| default:
     #|         Update the treestore in normal mode
     #+----------------------------------------------
-    def default(self, symbol):
-        self.treestore.clear()            
-        
+    def default(self, symbol, messageToHighlight=None):
+        self.treestore.clear()
+
         if symbol == None:
             return
 
         self.symbol = symbol
         self.log.debug("Updating the treestore of the messages in default mode with the messages from the symbol " + self.symbol.getName())
-        
 
         # Verifies we have everything needed for the creation of the treeview
         if (len(self.symbol.getMessages()) < 1):
             self.log.debug("It's an empty symbol so nothing to display")
             return
-         
+
+        # id number of the line to highlight
+        nbLineMessageToHighlight = -1
+
         # Build the next rows from messages after applying the regex
         content_lines = []
         maxNumberOfCol = 0
+        idLineMessage = 0
         for message in self.symbol.getMessages():
             # For each message we create a line and computes its cols
             try:
                 messageTable = message.applyAlignment(styled=True, encoded=True)
-                self.log.debug("Computed alignment of message : " + str(messageTable))
+#                for i in range(0, len(messageTable)):
+#                    messageTable[i] = glib.markup_escape_text(messageTable[i])
+
             except NetzobException:
                 self.log.warn("Impossible to display one of messages since it cannot be cut according to the computed regex.")
                 self.log.warn("Message : " + str(message.getStringData()))
-                
                 continue  # We don't display the message in error
+
+            if messageToHighlight != None and str(message.getID()) == str(messageToHighlight.getID()):
+                nbLineMessageToHighlight = idLineMessage
+
             line = []
             line.append(message.getID())
             line.append("#ffffff")
@@ -167,11 +178,9 @@ class TreeMessageGenerator():
             line.append(False)
             line.extend(messageTable)
             content_lines.append(line)
-            if len(messageTable) > maxNumberOfCol :
+            idLineMessage = idLineMessage + 1
+            if len(messageTable) > maxNumberOfCol:
                 maxNumberOfCol = len(messageTable)
-            
-        
-        
 
         # Create a TreeStore with N cols, with N := len(self.symbol.getFields())
         # str : Name of the row
@@ -179,7 +188,7 @@ class TreeMessageGenerator():
         # int : pango type (weight bold)
         # bool : is row editable
         # [str...str] : value of cols
-        
+
         treeStoreTypes = [str, str, int, gobject.TYPE_BOOLEAN]
         for i in range(0, maxNumberOfCol):
             treeStoreTypes.append(str)
@@ -192,11 +201,8 @@ class TreeMessageGenerator():
         regex_row.append(pango.WEIGHT_BOLD)
         regex_row.append(True)
         for field in self.symbol.getFields():
-            regex_row.append(field.getEncodedVersionOfTheRegex())
-        
-        
-        
-        
+            regex_row.append(glib.markup_escape_text(field.getEncodedVersionOfTheRegex()))
+
         # Build the types row
         types_line = []
         types_line.append("HEADER TYPE")
@@ -205,24 +211,32 @@ class TreeMessageGenerator():
         types_line.append(True)
         for field in self.symbol.getFields():
             types_line.append(field.getFormat())
-        
-        
+
         self.treestore.append(None, regex_row)
         self.treestore.append(None, types_line)
-        for line in content_lines :
-            self.treestore.append(None, line)
-                    
-        # activate or deactiave the perfect number of columns = nb Field
+        idLine = 0
+        messageEntryToHighlight = None
+        for line in content_lines:
+            messageEntry = self.treestore.append(None, line)
+            if nbLineMessageToHighlight == idLine:
+                messageEntryToHighlight = messageEntry
+            idLine = idLine + 1
+
+        # activate or deactivate the perfect number of columns = nb Field
         for col in self.treeview.get_columns():
             self.treeview.remove_column(col)
-        for i in range(0, min(200, len(self.symbol.getFields()))) :
+        for i in range(0, min(200, len(self.symbol.getFields()))):
             self.treeview.append_column(self.currentColumns[i])
+            self.treeview.get_column(i).set_title(self.symbol.getFieldByIndex(i).getName())
 
         self.treeview.set_model(self.treestore)
 
+        # highlight the message entry
+        if messageEntryToHighlight != None:
+            self.treeview.get_selection().select_iter(messageEntryToHighlight)
+
     def updateDefault(self):
         self.default(self.symbol)
-        
 
     #+----------------------------------------------
     #| GETTERS:
@@ -235,3 +249,6 @@ class TreeMessageGenerator():
 
     def getSymbol(self):
         return self.symbol
+
+    def getWidget(self):
+        return self.scroll

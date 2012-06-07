@@ -54,7 +54,7 @@ class TypeConvertor():
     #| @return
     #+----------------------------------------------
     @staticmethod
-    def string2bin(aStr, endian):
+    def string2bin(aStr, endian='big'):
         result = bitarray(endian=endian)
         result.fromstring(aStr)
         return result
@@ -122,6 +122,11 @@ class TypeConvertor():
     @staticmethod
     def int2string(int):
         return str(int)
+
+    @staticmethod
+    def encodePythonRawToGivenType(raw, aType):
+        netzobRaw = TypeConvertor.pythonRawToNetzobRaw(raw)
+        return TypeConvertor.encodeNetzobRawToGivenType(netzobRaw, aType)
 
     @staticmethod
     def encodeNetzobRawToGivenType(raw, aType):
@@ -243,11 +248,11 @@ class TypeConvertor():
 
         if len(raw) % 2 == 0:  # Even length
             for i in range(0, len(raw), 2):
-                res = res + " " + oct(int(raw[i: i + 2], 16))
+                res = res + oct(int(raw[i: i + 2], 16))
         else:  # Odd length
             for i in range(0, len(raw) - 1, 2):
-                res = res + " " + oct(int(raw[i: i + 2], 16))
-            res = res + " " + oct(int(raw[-1], 16))
+                res = res + oct(int(raw[i: i + 2], 16))
+            res = res + oct(int(raw[-1], 16))
         return res
 
     @staticmethod
@@ -269,11 +274,11 @@ class TypeConvertor():
 
         if len(raw) % 2 == 0:  # Even length
             for i in range(0, len(raw), 2):
-                res = res + " " + str(int(raw[i: i + 2], 16))
+                res = res + str(int(raw[i: i + 2], 16))
         else:  # Odd length
             for i in range(0, len(raw) - 1, 2):
-                res = res + " " + str(int(raw[i: i + 2], 16))
-            res = res + " " + str(int(raw[-1], 16))
+                res = res + str(int(raw[i: i + 2], 16))
+            res = res + str(int(raw[-1], 16))
         return res
 
     @staticmethod
@@ -281,9 +286,10 @@ class TypeConvertor():
     #| Return the decimal parameter in string
     #+----------------------------------------------
     def decimalToNetzobRaw(raw):
-        logging.error("Not yet implemented")
-        # TODO
-        return raw
+        result = str(int(raw, 16))
+        if len(result) % 2 == 1:
+            result = "0" + result
+        return result
 
     @staticmethod
     #+----------------------------------------------
@@ -310,7 +316,7 @@ class TypeConvertor():
                 hex_octets.append('0' + hex(int(dec_octet))[2:])
             else:
                 hex_octets.append(hex(int(dec_octet))[2:])
-                
+
         hex_ip = ''.join(hex_octets)
         return hex_ip
 
@@ -326,7 +332,7 @@ class TypeConvertor():
             tmp = str(tmp)[10:len(str(tmp)) - 2][4:]
             res.extend(tmp)
         return res.to01()
-    
+
     @staticmethod
     #+----------------------------------------------
     #| Return the string parameter in a bitarray
@@ -375,73 +381,131 @@ class TypeConvertor():
         for i in range(0, len(msg), 1):
             res = res + msg[i:i + 1].encode("hex")
         return res
-    
+
+    @staticmethod
+    #+----------------------------------------------
+    #| serializeScores :
+    #|     create a serialization view of the scores
+    #| @returns (format)
+    #+---------------------------------------------
+    def serializeScores(symbol, scores, symbols):
+        format = ""
+        iuid = symbol.getID()
+        canAppend = False
+        if iuid in scores.keys():
+            for j in symbols:
+                juid = j.getID()
+                if juid in scores[iuid].keys() and canAppend:
+                    format += str(scores[iuid][juid]) + "S"
+                canAppend = (j == symbol)
+        format += "E"
+        return format
+
+    @staticmethod
+    #+----------------------------------------------
+    #| serializeScores :
+    #|     create a serialization view of the scores
+    #| @returns (format)
+    #+---------------------------------------------
+    def deserializeScores(symbols, scores):
+        listScores = [[symbols[i].getID(), symbols[j].getID(), score] for (i, j, score) in scores]
+        return listScores
+
     @staticmethod
     #+----------------------------------------------
     #| serializeMessages :
     #|     create a serialization view of the messages
     #| @returns (serialized, format)
     #+----------------------------------------------
-    def serializeMessages(messages):
+    def serializeMessages(messages, unitSize):
         serialMessages = ""
         format = ""
         for m in messages:
             data = m.getReducedStringData()
-            data = "".join( ["0"+i for i in data] )
+
+            if unitSize == 8:
+                data = data
+            elif unitSize == 4:
+                data = "".join(["0" + i for i in data])
+            else:
+                logging.warn("Serializing at " + str(unitSize) + " unit size not yet implemented")
+                return
 
             format += str(len(data) / 2) + "M"
             serialMessages += TypeConvertor.netzobRawToPythonRaw(data)
         return (serialMessages, format)
-    
+
     @staticmethod
     #+----------------------------------------------
     #| serializeSymbol :
     #|     create a serialization view of a symbol
     #| @returns (serialized, format)
     #+----------------------------------------------
-    def serializeSymbol(symbol):
+    def serializeSymbol(symbol, unitSize):
         serialSymbol = ""
-        format = ""        
-        if symbol.getAlignment() != None and symbol.getAlignment() != "" :
+        format = ""
+        if symbol.getAlignment() != None and symbol.getAlignment() != "":
             format += "1" + "G"
             messageTmp = ""
             alignmentTmp = ""
-            for i in range(0, len(symbol.getAlignment())):
-                if symbol.getAlignment()[i:i + 1] == "-":
-                    messageTmp += "\xff"
-                    alignmentTmp += "\x01"
-                else:
-                    messageTmp += TypeConvertor.netzobRawToPythonRaw( "0" + symbol.getAlignment()[i:i + 1])
-                    alignmentTmp += "\x00"
-            format += str(len(symbol.getAlignment())) + "M"
+
+            if unitSize == 8:
+                for i in range(0, len(symbol.getAlignment()), 2):
+                    format += str(len(symbol.getAlignment()) / 2) + "M"
+                    if symbol.getAlignment()[i:i + 2] == "--":
+                        messageTmp += "\xff"
+                        alignmentTmp += "\x01"
+                    else:
+                        messageTmp += TypeConvertor.netzobRawToPythonRaw(symbol.getAlignment()[i:i + 2])
+                        alignmentTmp += "\x00"
+            elif unitSize == 4:
+                format += str(len(symbol.getAlignment())) + "M"
+                for i in range(0, len(symbol.getAlignment())):
+                    if symbol.getAlignment()[i:i + 1] == "-":
+                        messageTmp += "\xff"
+                        alignmentTmp += "\x01"
+                    else:
+                        messageTmp += TypeConvertor.netzobRawToPythonRaw("0" + symbol.getAlignment()[i:i + 1])
+                        alignmentTmp += "\x00"
+            else:
+                logging.warn("Serializing at " + str(unitSize) + " unit size not yet implemented")
+                return
             serialSymbol += messageTmp
             serialSymbol += alignmentTmp
         else:
             format += str(len(symbol.getMessages())) + "G"
             for m in symbol.getMessages():
                 data = m.getReducedStringData()
-                data = "".join( ["0"+i for i in data] )
-                format += str(len(data) / 2) + "M"
+                if unitSize == 8:
+                    format += str(len(data) / 2) + "M"
+                    data = data
+                elif unitSize == 4:
+                    format += str(len(data)) + "M"
+                    data = "".join(["0" + i for i in data])
+                else:
+                    logging.warn("Serializing at " + str(unitSize) + " unit size not yet implemented")
+                    return
                 serialSymbol += TypeConvertor.netzobRawToPythonRaw(data)  # The message
                 serialSymbol += "".join(['\x00' for x in range(len(data) / 2)])  # The alignement == "\x00" * len(the message), the first time
-        
         return (serialSymbol, format)
-    
+
     @staticmethod
     #+----------------------------------------------
     #| serializeSymbols :
     #|     create a serialization view of symbols
     #| @returns (serialized, format)
     #+----------------------------------------------
-    def serializeSymbols(symbols):
+    def serializeSymbols(symbols, unitSize, scores):
         serialSymbols = ""
-        formatSymbols = ""        
-        for symbol in symbols :
-            (serialSymbol, formatSymbol) = TypeConvertor.serializeSymbol(symbol)
+        formatSymbols = ""
+        for symbol in symbols:
+            (serialSymbol, formatSymbol) = TypeConvertor.serializeSymbol(symbol, unitSize)
+            formatScores = TypeConvertor.serializeScores(symbol, scores, symbols)
+            formatSymbols += formatScores
             serialSymbols += serialSymbol
             formatSymbols += formatSymbol
         return (serialSymbols, formatSymbols)
-    
+
     @staticmethod
     #+----------------------------------------------
     #| deserializeContent :
@@ -453,13 +517,12 @@ class TypeConvertor():
         # first we retrieve the size of all the messages
         size_messages = format.split("M")
         total = 0
-        for str_size_message in size_messages[:-1] :
+        for str_size_message in size_messages[:-1]:
             size_message = int(str_size_message)
             result.append(TypeConvertor.pythonRawToNetzobRaw(serializedContents[total:total + size_message]))
             total += size_message
-        
+
         return result
-        
 
     @staticmethod
     #+----------------------------------------------
@@ -512,7 +575,8 @@ class TypeConvertor():
             tmp = TypeConvertor.encodeNetzobRawToGivenType(raw, aFormat)
             return tmp
         elif unitSize == UnitSize.BIT:
-            return " ".join(TypeConvertor.netzobRawToBinary(raw))
+            size = 1
+            return TypeConvertor.encodeNetzobRawToGivenType(raw, aFormat)
         elif unitSize == UnitSize.BITS8:
             size = 8
         elif unitSize == UnitSize.BITS16:
@@ -567,13 +631,13 @@ class TypeConvertor():
             elif aFormat == Format.DECIMAL:
                 tmp = "%d" % tmp
             elif aFormat == Format.HEX:
-                fmt = "%0" + str(size/4) + "x"
+                fmt = "%" + str(size / 4) + "x"
                 tmp = fmt % tmp
             elif aFormat == Format.STRING:
                 tmp = TypeConvertor.netzobRawToString(initTmp)
             elif aFormat == Format.FLOAT:
                 tmp = "%f" % tmp
 
-            res += str(tmp) + " "
+            res += str(tmp)
 
-        return res[:-1]  # We delete the last space character
+        return res  # s[:-1]  # We delete the last space character

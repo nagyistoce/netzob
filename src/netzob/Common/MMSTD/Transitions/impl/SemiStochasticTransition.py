@@ -43,6 +43,7 @@ from lxml.etree import ElementTree
 #+---------------------------------------------------------------------------+
 from netzob.Common.MMSTD.Transitions.AbstractTransition import AbstractTransition
 from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol
+from netzob.Common.MMSTD.Symbols.impl.UnknownSymbol import UnknownSymbol
 from netzob.Common.MMSTD.Symbols.impl.DictionarySymbol import DictionarySymbol
 from lxml import etree
 
@@ -106,6 +107,38 @@ class SemiStochasticTransition(AbstractTransition):
         return self.outputSymbols[r]
 
     #+-----------------------------------------------------------------------+
+    #| setProbabilityForOutputSymbol
+    #|     Change the value of the probability for a provided output symbol
+    #+-----------------------------------------------------------------------+
+    def setProbabilityForOutputSymbol(self, outputSymbol, newProbability):
+        savedSymbols = []
+
+        for (oldSymbol, oldProba, oldTime) in self.getOutputSymbols():
+            if oldSymbol == outputSymbol:
+                savedSymbols.append([oldSymbol, newProbability, oldTime])
+            else:
+                savedSymbols.append([oldSymbol, oldProba, oldTime])
+
+        self.outputSymbols = []
+        self.outputSymbols.extend(savedSymbols)
+
+    #+-----------------------------------------------------------------------+
+    #| setTimeForOutputSymbol
+    #|     Change the value of the time for a provided output symbol
+    #+-----------------------------------------------------------------------+
+    def setTimeForOutputSymbol(self, outputSymbol, newTime):
+        savedSymbols = []
+
+        for (oldSymbol, oldProba, oldTime) in self.getOutputSymbols():
+            if oldSymbol == outputSymbol:
+                savedSymbols.append([oldSymbol, oldProba, newTime])
+            else:
+                saved.symbols.append([oldSymbol, oldProba, oldTime])
+
+        self.outputSymbols = []
+        self.outputSymbols.extend(savedSymbols)
+
+    #+-----------------------------------------------------------------------+
     #| executeAsClient
     #|     Randomly pick an outputSymbol and send it
     #| @param abstractionLayer the abstract layer to contact in order to reach outside world
@@ -137,37 +170,37 @@ class SemiStochasticTransition(AbstractTransition):
         # write the input symbol on the output channel
         finish = False
         errors = False
-        
+
         abstractionLayer.writeSymbol(self.inputSymbol)
         while (not finish):
-            (receivedSymbol, message) = abstractionLayer.receiveSymbolWithTimeout(-1)
+            (receivedSymbol, message) = abstractionLayer.receiveSymbolWithTimeout(5)
             if receivedSymbol == None:
                 self.log.info("Message received = NONE ")
                 finish = True
                 errors = True
-            else :
+            else:
                 self.log.info("The MASTER received " + str(receivedSymbol.getName()))
-                
+
                 if (len(self.outputSymbols) == 0):
                     self.log.debug("Nothing is considered since the server didn't expect anything.")
                     finish = True
-                
+
                 for arSymbol in self.outputSymbols:
                     [symbol, proba, rtime] = arSymbol
                     if symbol.getID() == receivedSymbol.getID():
                         self.log.debug("Received symbol is understood !!")
                         finish = True
-                    elif symbol.getType() == receivedSymbol.getType() and symbol.getType() == EmptySymbol.TYPE :
+                    elif symbol.getType() == receivedSymbol.getType() and symbol.getType() == EmptySymbol.TYPE:
                         self.log.debug("We consider the reception of an EmptySymbol and validate the transition")
-                        finish = True                
+                        finish = True
         self.deactivate()
-        
-        if errors :
+
+        if errors:
             self.log.warn("The execution of transition " + str(self.getName()) + " as a Master, failed.")
             return None
-        else :
+        else:
             self.log.debug("The execution of transition " + str(self.getName()) + " as a Master was successful.")
-        
+
         return self.outputState
 
     def getDescription(self):
@@ -192,7 +225,7 @@ class SemiStochasticTransition(AbstractTransition):
         xmlEndState.text = str(self.getOutputState().getID())
 
         xmlInput = etree.SubElement(xmlTransition, "{" + namespace + "}input")
-        xmlInput.set("symbol", self.getInputSymbol().getID())
+        xmlInput.set("symbol", str(self.getInputSymbol().getID()))
 
         xmlOutputs = etree.SubElement(xmlTransition, "{" + namespace + "}outputs")
         for arSymbol in self.outputSymbols:

@@ -32,7 +32,7 @@
 import sys
 import os
 sys.path.insert(0, 'src/')
-from distutils.core import setup, Extension
+from setuptools import setup, Extension, find_packages
 from netzob import release
 from resources.sdist.manpage_command import manpage_command
 
@@ -40,45 +40,22 @@ from resources.sdist.manpage_command import manpage_command
 #+----------------------------------------------------------------------------
 #| Definition of the extensions
 #+----------------------------------------------------------------------------
-moduleLibNeedleman = Extension('libNeedleman',
-                               extra_compile_args=["-fopenmp"],
-                               extra_link_args=["-fopenmp"],
+moduleLibNeedleman = Extension('_libNeedleman',
                                sources=['lib/libNeedleman/libNeedleman.c'])
 
 CMD_CLASS = {
              'build_manpage': manpage_command
              }
 
-#+---------------------------------------------------------------------------+
-#| find_packages
-#|     Retrieves all the packages (directories) with basename = base and
-#|     hosted in directory.
-#+---------------------------------------------------------------------------+
-def find_packages(directory, base):
-    ret = [base]
-    start = os.path.join(directory, base)
-    # Retrieves the list of directories in directory/base/*
-    for path in os.listdir(start):
-        if path.startswith('.'):
-            continue
-        full_path = os.path.join(base, path)
-        if os.path.isdir(os.path.join(directory, full_path)):
-            ret += find_packages(directory, full_path)
-            
-    # transforms directories in packages names ('/' -> '.')
-    result = []
-    for r in ret:
-        result.append(r.replace('/', '.'))
-        
-    return result
+
 
 #+----------------------------------------------------------------------------
 #| Definition of Netzob for setup
 #+----------------------------------------------------------------------------
 setup(
     name=release.name,
-    packages=find_packages('src/', 'netzob'),
-    package_dir={"netzob": "src/netzob" },
+    packages=find_packages(where='src'),
+    package_dir={"netzob": "src" + os.sep + "netzob"},
     ext_modules=[moduleLibNeedleman],
     data_files=[
         ('share/netzob', ['resources/static/logo.png']),

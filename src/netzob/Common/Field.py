@@ -45,6 +45,12 @@ from netzob.Common.Type.Endianess import Endianess
 from netzob.Common.Type.TypeConvertor import TypeConvertor
 from netzob.Common.MMSTD.Dictionary.Variables.AggregateVariable import AggregateVariable
 from netzob.Common.MMSTD.Dictionary.Variables.AlternateVariable import AlternateVariable
+from netzob.Common.MMSTD.Dictionary.Memory import Memory
+from netzob.Common.Filters.Encoding.FormatFilter import FormatFilter
+from netzob.Common.Filters.Visualization.TextColorFilter import TextColorFilter
+from netzob.Common.Filters.Visualization.BackgroundColorFilter import BackgroundColorFilter
+from netzob.Common.Filters.Mathematic.Base64Filter import Base64Filter
+from netzob.Common.Filters.Mathematic.GZipFilter import GZipFilter
 
 
 #+---------------------------------------------------------------------------+
@@ -66,10 +72,14 @@ class Field(object):
         self.description = ""
         self.color = "black"
         self.variable = None
+
+        # Interpretation attributes
         self.format = Format.HEX
         self.unitSize = UnitSize.NONE
         self.sign = Sign.UNSIGNED
         self.endianess = Endianess.BIG
+
+        self.mathematicFilters = []
 
     def getEncodedVersionOfTheRegex(self):
         if self.regex == "" or self.regex == None or self.regex == "None":  # TODO: becareful with the fact that XML files may store None as a string...
@@ -118,34 +128,82 @@ class Field(object):
     def setVariable(self, variable):
         self.variable = variable
 
+    def getVisualizationFilters(self):
+        filters = []
+
+        # dynamic fields are in Blue
+        if not self.isStatic():
+            filters.append(TextColorFilter("Dynamic Field", "blue"))
+#            # fields with no variable define are in yellow
+            if self.variable == None:
+                filters.append(BackgroundColorFilter("Default variable", "yellow"))
+
+        return filters
+
+    def getEncodingFilters(self):
+        filters = []
+        # Following filters must be considered :
+        filters.append(self.computeFormatEncodingFilter())
+
+        return filters
+
+    def removeMathematicFilter(self, filter):
+        fToRemove = None
+        for mFilter in self.mathematicFilters:
+            if mFilter.getName() == filter.getName():
+                fToRemove = mFilter
+                break
+        if fToRemove != None:
+            self.mathematicFilters.remove(fToRemove)
+
+    def addMathematicFilter(self, filter):
+        self.mathematicFilters.append(filter)
+
+    def computeFormatEncodingFilter(self):
+        return FormatFilter("Field Format Encoding", self.format, self.unitSize, self.endianess, self.sign)
+
+    def computeSignEncodingFilter(self):
+        return None
+
+    def computeEndianessEncodingFilter(self):
+        return None
+
     def save(self, root, namespace):
         xmlField = etree.SubElement(root, "{" + namespace + "}field")
         xmlField.set("name", str(self.getName()))
         xmlField.set("index", str(self.getIndex()))
 
-        xmlFieldEncapsulationLevel = etree.SubElement(xmlField, "{" + namespace + "}encapsulation_level")
-        xmlFieldEncapsulationLevel.text = str(self.getEncapsulationLevel())
+        if self.getEncapsulationLevel() != None:
+            xmlFieldEncapsulationLevel = etree.SubElement(xmlField, "{" + namespace + "}encapsulation_level")
+            xmlFieldEncapsulationLevel.text = str(self.getEncapsulationLevel())
 
-        xmlFieldRegex = etree.SubElement(xmlField, "{" + namespace + "}regex")
-        xmlFieldRegex.text = str(self.getRegex())
+        if self.getRegex() != None:
+            xmlFieldRegex = etree.SubElement(xmlField, "{" + namespace + "}regex")
+            xmlFieldRegex.text = str(self.getRegex())
 
-        xmlFieldFormat = etree.SubElement(xmlField, "{" + namespace + "}format")
-        xmlFieldFormat.text = str(self.getFormat())
+        if self.getFormat() != None:
+            xmlFieldFormat = etree.SubElement(xmlField, "{" + namespace + "}format")
+            xmlFieldFormat.text = str(self.getFormat())
 
-        xmlFieldUnitSize = etree.SubElement(xmlField, "{" + namespace + "}unitsize")
-        xmlFieldUnitSize.text = str(self.getUnitSize())
+        if self.getUnitSize() != None:
+            xmlFieldUnitSize = etree.SubElement(xmlField, "{" + namespace + "}unitsize")
+            xmlFieldUnitSize.text = str(self.getUnitSize())
 
-        xmlFieldSign = etree.SubElement(xmlField, "{" + namespace + "}sign")
-        xmlFieldSign.text = str(self.getSign())
+        if self.getSign() != None:
+            xmlFieldSign = etree.SubElement(xmlField, "{" + namespace + "}sign")
+            xmlFieldSign.text = str(self.getSign())
 
-        xmlFieldEndianess = etree.SubElement(xmlField, "{" + namespace + "}endianess")
-        xmlFieldEndianess.text = str(self.getEndianess())
+        if self.getEndianess() != None:
+            xmlFieldEndianess = etree.SubElement(xmlField, "{" + namespace + "}endianess")
+            xmlFieldEndianess.text = str(self.getEndianess())
 
-        xmlFieldDescription = etree.SubElement(xmlField, "{" + namespace + "}description")
-        xmlFieldDescription.text = str(self.getDescription())
+        if self.getDescription() != None:
+            xmlFieldDescription = etree.SubElement(xmlField, "{" + namespace + "}description")
+            xmlFieldDescription.text = str(self.getDescription())
 
-        xmlFieldColor = etree.SubElement(xmlField, "{" + namespace + "}color")
-        xmlFieldColor.text = str(self.getColor())
+        if self.getColor() != None:
+            xmlFieldColor = etree.SubElement(xmlField, "{" + namespace + "}color")
+            xmlFieldColor.text = str(self.getColor())
 
         if self.getVariable() != None:
             self.getVariable().toXML(xmlField, namespace)
@@ -189,6 +247,9 @@ class Field(object):
 
     def getEndianess(self):
         return self.endianess
+
+    def getMathematicFilters(self):
+        return self.mathematicFilters
 
     #+----------------------------------------------
     #| SETTERS

@@ -29,15 +29,12 @@
 #| Standard library imports
 #+----------------------------------------------
 import logging
-import time
-
 
 from netzob.Inference.Grammar.Queries.MembershipQuery import MembershipQuery
 from netzob.Common.MMSTD.Symbols.impl.DictionarySymbol import DictionarySymbol
 from netzob.Inference.Grammar.LearningAlgorithm import LearningAlgorithm
 from netzob.Common.MMSTD.Symbols.impl.EmptySymbol import EmptySymbol
 from netzob.Common.MMSTD.Symbols.AbstractSymbol import AbstractSymbol
-from numpy.core.numeric import zeros
 from netzob.Common.MMSTD.States.impl.NormalState import NormalState
 from netzob.Common.MMSTD.Transitions.impl.SimpleTransition import SimpleTransition
 from netzob.Common.MMSTD.Transitions.impl.SemiStochasticTransition import SemiStochasticTransition
@@ -57,8 +54,9 @@ from netzob.Common.MMSTD.MMSTD import MMSTD
 #+----------------------------------------------
 class Angluin(LearningAlgorithm):
 
-    def __init__(self, dictionary, communicationChannel, resetScript, cb_query):
-        LearningAlgorithm.__init__(self, dictionary, communicationChannel, resetScript, cb_query)
+    def __init__(self, dictionary, inputDictionary, communicationChannel, resetScript, cb_query, cb_hypotheticalAutomaton, cache):
+        LearningAlgorithm.__init__(self, dictionary, inputDictionary, communicationChannel, resetScript, cb_query, cb_hypotheticalAutomaton, cache)
+
         # create logger with the given configuration
         self.log = logging.getLogger('netzob.Inference.Grammar.Angluin.py')
 
@@ -75,7 +73,7 @@ class Angluin(LearningAlgorithm):
         self.SA = []
         self.initialD = []
         # fullfill D with the dictionary
-        for entry in self.dictionary.getSymbols():
+        for entry in self.getInputDictionary():
             letter = DictionarySymbol(entry)
             mq = MembershipQuery([letter])
             self.addWordInD(mq)
@@ -133,6 +131,8 @@ class Angluin(LearningAlgorithm):
         for letter in self.D:
             self.addWordInSA(word.getMQSuffixedWithMQ(letter))
 
+        self.displayObservationTable()
+
     def addWordInSA(self, word):
         # first we verify the word is not already in SA
         if word in self.SA:
@@ -155,12 +155,13 @@ class Angluin(LearningAlgorithm):
             cel[word] = self.submitQuery(mq)
             self.observationTable[letter] = cel
 
+        self.displayObservationTable()
+
     def learn(self):
         self.log.info("Learn...")
         self.displayObservationTable()
 
         while (not self.isClosed() or not self.isConsistent()):
-
             if not self.isClosed():
                 self.log.info("#================================================")
                 self.log.info("The table is not closed")
@@ -208,11 +209,11 @@ class Angluin(LearningAlgorithm):
                 if self.rowsEquals(rowS, rowSA):
                     self.log.debug("     is closed: YES (" + str(rowS) + " is equal !")
                     found = True
-                    
+
             if not found:
                 self.log.info("The low-row associated with " + str(wordSA) + " was not found in S")
                 return False
-            
+
         return True
 
     def closeTable(self):
@@ -292,7 +293,7 @@ class Angluin(LearningAlgorithm):
                     # We find the E (col) which makes the unconsistency
                     e = None
                     for i in range(0, len(row_w1a)):
-                        if row_w1a[i] != row_w2a[i]:
+                        if row_w1a[i].getID() != row_w2a[i].getID():
                             e = self.D[i]
                     self.log.info("E found is " + str(e))
                     newCol = a.getMQSuffixedWithMQ(e)
@@ -308,8 +309,9 @@ class Angluin(LearningAlgorithm):
             return False
 
         for i in range(0, len(r1)):
-            if r1[i] != r2[i]:
+            if r1[i].getID() != r2[i].getID():
                 return False
+        self.log.debug(str(r1) + " == " + str(r2))
         return True
 
     def moveWordFromSAtoS(self, wordSA):
@@ -358,6 +360,7 @@ class Angluin(LearningAlgorithm):
         startState = None
         idState = 0
         idTransition = 0
+        states = []
 
         self.log.info("Compute the automata...")
 
@@ -369,6 +372,7 @@ class Angluin(LearningAlgorithm):
             nameState = self.appendValuesInRow(r)
             self.log.info("Create state : " + nameState)
             currentState = NormalState(idState, nameState)
+            states.append(currentState)
             wordAndStates.append((w, currentState))
             # Is it the starting state (wordS = [EmptySymbol])
             if startState == None and w == MembershipQuery([EmptySymbol()]):
@@ -377,25 +381,29 @@ class Angluin(LearningAlgorithm):
 
             idState = idState + 1
 
+        self.log.debug("Create the transition of the automata")
         # Create the transitions of the automata
         for (word, state) in wordAndStates:
+            self.log.debug("Working on state : " + str(state.getName()))
+
             for symbol in self.initialD:
                 # retrieve the value:
                 dicValue = self.observationTable[symbol]
                 value = dicValue[word]
-                
                 # search for the output state
                 mq = word.getMQSuffixedWithMQ(symbol)
+                self.log.debug("> What happen when we send " + str(symbol) + " after " + str(word))
+                self.log.debug(">> " + str(mq))
+
                 for wordSandSA in self.getSandSAWords():
-                    
                     self.log.info("IS " + str(wordSandSA) + " eq " + str(mq))
-                    
                     if wordSandSA == mq:
                         self.log.info("YES its equal")
                         rowOutputState = self.getRowOfObservationTable(wordSandSA)
                         outputStateName = self.appendValuesInRow(rowOutputState)
-                        
-                        
+                        self.log.debug("rowOutputState = " + str(rowOutputState))
+                        self.log.debug("outputStateName = " + str(outputStateName))
+
                         # search for the state having this name:
                         outputState = None
                         self.log.info("Search for the output state : " + outputStateName)
@@ -403,30 +411,31 @@ class Angluin(LearningAlgorithm):
                             if s2.getName() == outputStateName:
                                 outputState = s2
                                 self.log.info("  == " + str(s2.getName()))
-                            else :
+                            else:
                                 self.log.info("   != " + str(s2.getName()))
-                                
-                                
-                                
+
                         if outputState != None:
                             inputSymbol = symbol.getSymbolsWhichAreNotEmpty()[0]
-                            
+
                             self.log.info("We create a transition from " + str(state.getName()) + "=>" + str(outputState.getName()))
                             self.log.info(" input : " + str(inputSymbol))
                             self.log.info(" output : " + str(value))
-                            
+
                             transition = SemiStochasticTransition(idTransition, "Transition " + str(idTransition), state, outputState, inputSymbol)
                             transition.addOutputSymbol(value, 100, 1000)
                             state.registerTransition(transition)
-                            
+
                             idTransition = idTransition + 1
-                            
-                        else :
+
+                        else:
                             self.log.error("<!!> Impossible to retrieve the output state named " + str(s2.getName()))
 
         if startState != None:
             self.log.info("An infered automata has been computed.")
+
             self.inferedAutomata = MMSTD(startState, self.dictionary)
+            for state in states:
+                self.inferedAutomata.addState(state)
             self.log.info(self.inferedAutomata.getDotCode())
 
     def addCounterExamples(self, counterExamples):

@@ -32,13 +32,11 @@ import gtk
 import gobject
 import re
 import pygtk
-import uuid
 pygtk.require('2.0')
 import logging
 import threading
 import os
 import time
-import random
 from ptrace.linux_proc import readProcesses, readProcessCmdline
 import subprocess
 
@@ -48,6 +46,7 @@ import subprocess
 from netzob.Common.Models.IPCMessage import IPCMessage
 from netzob.Common.Models.Factories.IPCMessageFactory import IPCMessageFactory
 from netzob.Import.AbstractImporter import AbstractImporter
+
 
 #+----------------------------------------------
 #| IPpc:
@@ -338,7 +337,7 @@ class IpcImport(AbstractImporter):
         md.destroy()
 
         if resp == gtk.RESPONSE_OK:
-            self.saveMessagesInProject(self.zob.getCurrentWorkspace(), currentProject, messages)
+            self.saveMessagesInProject(self.zob.getCurrentWorkspace(), currentProject, messages, False)
         self.dialog.destroy()
 
         # We update the gui
@@ -403,7 +402,7 @@ class IpcImport(AbstractImporter):
     def handle_new_pkt(self, src, event):
         # Retrieve details from the captured paket
         data = src.readline()
-        compiledRegex = re.compile("(read|write)\((\d+), \"(.*)\", \d+\)[]*=[]*(\d+)")
+        compiledRegex = re.compile("(read|write)\((\d+), \"(.*)\", \d+\)[ \t]*=[ \t]*(\d+)")
         m = compiledRegex.match(data)
         if m == None:
             return self.doSniff
