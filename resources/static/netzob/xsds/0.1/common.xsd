@@ -330,4 +330,43 @@
 	
 	<element name="messages" type="netzob-common:Messages"></element>
 
+
+	<complexType name="MetaAttribute" mixed="true">
+		<attribute name="name">
+			<simpleType>
+				<restriction base="string">
+					<minLength value="1"></minLength>
+				</restriction>
+			</simpleType>
+		</attribute>
+		<attribute name="type">
+			<simpleType>
+				<restriction base="string">
+					<enumeration value="binary"></enumeration>
+					<enumeration value="octal"></enumeration>
+					<enumeration value="decimal"></enumeration>
+					<enumeration value="hex"></enumeration>
+					<enumeration value="string"></enumeration>
+					<enumeration value="float"></enumeration>
+					<enumeration value="num"></enumeration>
+					<enumeration value="alpha"></enumeration>
+					<enumeration value="alphanum"></enumeration>
+					<enumeration value="ascii"></enumeration>
+					<enumeration value="base64enc"></enumeration>
+					<enumeration value="base64dec"></enumeration>
+					<minLength value="1"></minLength>
+				</restriction>
+			</simpleType>
+		</attribute>
+	</complexType>
+
+	<complexType name="MetaMessage">
+    	<complexContent>
+    		<extension base="netzob-common:Message">
+    			<sequence>
+    				<element name="attribute" type="netzob-common:MetaAttribute" maxOccurs="unbounded" minOccurs="0"></element>
+    			</sequence>
+    		</extension>
+    	</complexContent>
+    </complexType>
 </schema>

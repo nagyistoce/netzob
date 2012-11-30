@@ -48,6 +48,7 @@ from netzob.Common.Models.Factories.IPCMessageFactory import IPCMessageFactory
 from netzob.Common.Models.Factories.IRPMessageFactory import IRPMessageFactory
 from netzob.Common.Models.Factories.IRPDeviceIoControlMessageFactory import IRPDeviceIoControlMessageFactory
 from netzob.Common.Models.Factories.RawMessageFactory import RawMessageFactory
+from netzob.Common.Models.Factories.MetaMessageFactory import MetaMessageFactory
 
 
 class AbstractMessageFactory(object):
@@ -83,6 +84,8 @@ class AbstractMessageFactory(object):
             IRPDeviceIoControlMessageFactory.save(message, xmlMessage, namespace_project, namespace_common)
         elif message.getType() == "RAW":
             RawMessageFactory.save(message, xmlMessage, namespace_project, namespace_common)
+        elif message.getType() == "Meta":
+            MetaMessageFactory.save(message, xmlMessage, namespace_project, namespace_common)
         else:
             raise NameError('''There is no factory which would support
             the generation of an xml representation of the message : ''' + str(message))
@@ -137,6 +140,9 @@ class AbstractMessageFactory(object):
 
         elif rootElement.get("{http://www.w3.org/2001/XMLSchema-instance}type", "abstract") == RawMessageFactory.XML_SCHEMA_TYPE:
             return RawMessageFactory.loadFromXML(rootElement, namespace, version, id, timestamp, data)
+
+        elif rootElement.get("{http://www.w3.org/2001/XMLSchema-instance}type", "abstract") == MetaMessageFactory.XML_SCHEMA_TYPE:
+            return MetaMessageFactory.loadFromXML(rootElement, namespace, version, id, timestamp, data)
         else:
             raise NameError("The parsed xml doesn't represent a valid type message.")
             return None
