@@ -339,6 +339,9 @@ class PeachExport(object):
                                 if splittedRegex[i].find(",") == -1:  # regex = {n}
                                     fieldMaxLength = int(splittedRegex[i])
                                     fieldMinLength = fieldMaxLength
+                                elif splittedRegex[i] == ",":  # regex = {,}
+                                    fieldMaxLength = 65535  # TODO: allow more precise size
+                                    fieldMinLength = 0
                                 elif splittedRegex[i].find(",") == 0:  # regex = {,p}
                                     fieldMaxLength = int((splittedRegex[i])[1:len(splittedRegex[i])])
                                     fieldMinLength = 0
