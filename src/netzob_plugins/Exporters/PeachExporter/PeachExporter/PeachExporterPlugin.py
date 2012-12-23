@@ -29,9 +29,6 @@
 #| Standard library imports                                                  |
 #+---------------------------------------------------------------------------+
 from gettext import gettext as _
-import logging
-import uuid
-import random
 
 #+---------------------------------------------------------------------------+
 #| Related third party imports                                               |
@@ -42,7 +39,7 @@ import random
 #+---------------------------------------------------------------------------+
 from netzob.Common.Plugins.ExporterPlugin import ExporterPlugin
 from netzob.Common.Plugins.Extensions.ExportMenuExtension import ExportMenuExtension
-from PeachExportController import PeachExportController
+from netzob_plugins.Exporters.PeachExporter.PeachExporter.PeachExportController import PeachExportController
 from netzob.UI.NetzobWidgets import NetzobErrorMessage
 
 
@@ -126,5 +123,5 @@ class PeachExporterPlugin(ExporterPlugin):
         if self.netzob.getCurrentProject() is None:
             NetzobErrorMessage(_("No project selected."))
             return
-        controller = PeachExportController(self.netzob)
+        controller = PeachExportController(self.netzob, self)
         controller.run()
